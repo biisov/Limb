@@ -18,7 +18,7 @@ class MainActivity : Activity() {
     private lateinit var haptics: Haptics
 
     private val handler = Handler(Looper.getMainLooper())
-    private var holdDirection = 0 // +1 / -1 while a volume button is held, else 0
+    private var holdDirection = 0 // +1 clockwise / -1 counter-clockwise while a volume button is held, else 0
     private val repeatStep = object : Runnable {
         override fun run() {
             if (holdDirection == 0) return
@@ -42,26 +42,26 @@ class MainActivity : Activity() {
         }
     }
 
-    // Volume buttons turn the dial: + clockwise, - counter-clockwise. A tap is exactly one division;
+    // Volume buttons turn the dial: + counter-clockwise, - clockwise. A tap is exactly one division;
     // holding (after a short pause) keeps stepping on our own timer. The system key auto-repeat is
     // ignored, and returning true keeps the system volume from changing.
-    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean = when (keyCode) {
-        KeyEvent.KEYCODE_VOLUME_UP, KeyEvent.KEYCODE_VOLUME_DOWN -> {
-            if (event.repeatCount == 0) {
-                startHold(if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) 1 else -1)
-            }
-            true
-        }
-        else -> super.onKeyDown(keyCode, event)
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        val direction = directionFor(keyCode) ?: return super.onKeyDown(keyCode, event)
+        if (event.repeatCount == 0) startHold(direction)
+        return true
     }
 
-    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean = when (keyCode) {
-        KeyEvent.KEYCODE_VOLUME_UP, KeyEvent.KEYCODE_VOLUME_DOWN -> {
-            val direction = if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) 1 else -1
-            if (holdDirection == direction) stopHold()
-            true
-        }
-        else -> super.onKeyUp(keyCode, event)
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        val direction = directionFor(keyCode) ?: return super.onKeyUp(keyCode, event)
+        if (holdDirection == direction) stopHold()
+        return true
+    }
+
+    /** Dial direction for a volume key: +1 clockwise, -1 counter-clockwise, null for other keys. */
+    private fun directionFor(keyCode: Int): Int? = when (keyCode) {
+        KeyEvent.KEYCODE_VOLUME_UP -> -1
+        KeyEvent.KEYCODE_VOLUME_DOWN -> 1
+        else -> null
     }
 
     private fun startHold(direction: Int) {
