@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<app.limb.MainLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <app.limb.DialView
+        android:id="@+id/dial"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- Empty slot above the dial. Size and position are set by MainLayout.
+         To show an ad banner instead of the lock, remove @id/ad_placeholder and add the banner view here. -->
+    <FrameLayout
+        android:id="@+id/ad_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/ad_panel_background">
+
+        <ImageView
+            android:id="@+id/ad_placeholder"
+            android:layout_width="19dp"
+            android:layout_height="28dp"
+            android:layout_gravity="center"
+            android:importantForAccessibility="no"
+            android:src="@drawable/ic_lock" />
+    </FrameLayout>
+</app.limb.MainLayout>

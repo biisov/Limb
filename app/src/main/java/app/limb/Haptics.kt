@@ -9,12 +9,13 @@ import android.view.HapticFeedbackConstants
 import android.view.View
 
 /**
- * One short, crisp "tick" per dial division, like a time-picker wheel.
+ * One short haptic tick per dial division, in step with the sound.
  *
- * Clockwise is a regular tick; counter-clockwise is a weaker one to match its softer sound.
- *  - Android 10+: [VibrationEffect.EFFECT_TICK]; the weaker one is a TICK primitive at low scale
- *    (Android 11+), or a very short low-amplitude pulse.
- *  - older Android (and devices that can't do the above): [HapticFeedbackConstants.CLOCK_TICK].
+ * Clockwise is the strong, crisp one; counter-clockwise is weaker and softer.
+ *  - Android 11+: CLICK primitive at full scale vs. TICK primitive at low scale
+ *  - Android 10:  EFFECT_CLICK vs. EFFECT_TICK (the lightest built-in effect)
+ *  - older, or a motor without these: a short full-amplitude / low-amplitude pulse, and finally
+ *    [HapticFeedbackConstants] (KEYBOARD_TAP vs. CLOCK_TICK).
  */
 class Haptics(private val view: View) {
 
@@ -26,26 +27,40 @@ class Haptics(private val view: View) {
             view.context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
         }
 
-    private val strongTick: VibrationEffect? =
-        if (Build.VERSION.SDK_INT >= 29) VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK) else null
+    private val strong: VibrationEffect? = build(clockwise = true)
+    private val soft: VibrationEffect? = build(clockwise = false)
 
-    private val softTick: VibrationEffect? = when {
-        Build.VERSION.SDK_INT >= 30 &&
-            vibrator?.areAllPrimitivesSupported(VibrationEffect.Composition.PRIMITIVE_TICK) == true ->
-            VibrationEffect.startComposition()
-                .addPrimitive(VibrationEffect.Composition.PRIMITIVE_TICK, 0.4f)
-                .compose()
-        vibrator?.hasAmplitudeControl() == true -> VibrationEffect.createOneShot(8, 40)
-        else -> null
+    private fun build(clockwise: Boolean): VibrationEffect? {
+        val v = vibrator ?: return null
+        if (Build.VERSION.SDK_INT >= 30) {
+            val primitive =
+                if (clockwise) VibrationEffect.Composition.PRIMITIVE_CLICK else VibrationEffect.Composition.PRIMITIVE_TICK
+            if (v.areAllPrimitivesSupported(primitive)) {
+                return VibrationEffect.startComposition()
+                    .addPrimitive(primitive, if (clockwise) 1.0f else 0.35f)
+                    .compose()
+            }
+        }
+        if (Build.VERSION.SDK_INT >= 29) {
+            return VibrationEffect.createPredefined(
+                if (clockwise) VibrationEffect.EFFECT_CLICK else VibrationEffect.EFFECT_TICK,
+            )
+        }
+        if (v.hasAmplitudeControl()) {
+            return if (clockwise) VibrationEffect.createOneShot(12, 255) else VibrationEffect.createOneShot(6, 50)
+        }
+        return null
     }
 
     fun tick(clockwise: Boolean) {
         val v = vibrator
-        val effect = if (clockwise) strongTick else softTick
+        val effect = if (clockwise) strong else soft
         if (v != null && effect != null && v.hasVibrator()) {
             v.vibrate(effect)
         } else {
-            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+            view.performHapticFeedback(
+                if (clockwise) HapticFeedbackConstants.KEYBOARD_TAP else HapticFeedbackConstants.CLOCK_TICK,
+            )
         }
     }
 }

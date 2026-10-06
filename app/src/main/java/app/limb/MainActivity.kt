@@ -32,14 +32,14 @@ class MainActivity : Activity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         sounds = ClickSounds(this)
-        dial = DialView(this)
+        setContentView(R.layout.activity_main)
+        dial = findViewById(R.id.dial)
         haptics = Haptics(dial)
         // One sound and one haptic tick per division, always together - touch, fling or volume keys.
-        dial.detentListener = DialView.DetentListener { clockwise, intensity ->
-            sounds.play(clockwise, intensity)
+        dial.detentListener = DialView.DetentListener { clockwise, _ ->
+            sounds.play(clockwise)
             haptics.tick(clockwise)
         }
-        setContentView(dial)
     }
 
     // Volume buttons turn the dial: + clockwise, - counter-clockwise. A tap is exactly one division;

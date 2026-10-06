@@ -87,9 +87,9 @@ class DialView @JvmOverloads constructor(
     private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
 
     private val pointerPath = Path().apply {
-        val tipY = -R_KN - 24f
-        moveTo(-20f, tipY - 30f)
-        lineTo(20f, tipY - 30f)
+        val tipY = -R_KN - POINTER_GAP
+        moveTo(-20f, tipY - POINTER_HEIGHT)
+        lineTo(20f, tipY - POINTER_HEIGHT)
         lineTo(0f, tipY)
         close()
     }
@@ -324,7 +324,7 @@ class DialView @JvmOverloads constructor(
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         cx = w / 2f
         cy = h / 2f
-        scale = min(w, h) * 0.38f / R_KN
+        scale = scaleFor(w, h)
 
         bgMatrix.setScale(w * 0.75f, h * 0.75f)
         bgMatrix.postTranslate(w * 0.5f, h * 0.45f)
@@ -530,6 +530,8 @@ class DialView @JvmOverloads constructor(
         private const val R_KI = 333f // knurled ring, inner
         private const val R_SC = 325f // scale face
         private const val R_CAP = 208f // glossy centre cap
+        private const val POINTER_GAP = 24f // pointer tip to the knurled ring
+        private const val POINTER_HEIGHT = 30f
         private const val KNURL_COLUMNS = 84
         private const val KNURL_ROWS = 3
         private const val LIGHT_X = -0.55f
@@ -544,6 +546,12 @@ class DialView @JvmOverloads constructor(
         private const val FULL_INTENSITY_SPEED = 500f
         private const val STEP_INTENSITY_SPEED = 250f
         private const val MIN_CLICK_GAP_NANOS = 12_000_000L
+
+        private fun scaleFor(width: Int, height: Int): Float = min(width, height) * 0.38f / R_KN
+
+        /** Y (in pixels) of the top of the fixed pointer for a view of this size. The dial is centred. */
+        fun pointerTop(width: Int, height: Int): Float =
+            height / 2f - (R_KN + POINTER_GAP + POINTER_HEIGHT) * scaleFor(width, height)
 
         private fun opaque(rgb: Int): Int = rgb or (0xFF shl 24)
         private fun rgba(rgb: Int, a: Float): Int = ((a * 255f + 0.5f).toInt() shl 24) or (rgb and 0xFFFFFF)
