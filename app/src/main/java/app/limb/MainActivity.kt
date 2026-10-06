@@ -35,10 +35,10 @@ class MainActivity : Activity() {
         setContentView(R.layout.activity_main)
         dial = findViewById(R.id.dial)
         haptics = Haptics(dial)
-        // One sound and one haptic tick per division, always together - touch, fling or volume keys.
-        dial.detentListener = DialView.DetentListener { clockwise, _ ->
-            sounds.play(clockwise)
-            haptics.tick(clockwise)
+        // Sound and haptic tick are always played together, rate-limited - touch, fling or volume keys.
+        val feedback = ClickFeedback(sounds, haptics)
+        dial.detentListener = DialView.DetentListener { clockwise, divisionsPerSecond ->
+            feedback.onDetent(clockwise, divisionsPerSecond)
         }
     }
 

@@ -49,8 +49,8 @@ class DialView @JvmOverloads constructor(
 ) : View(context, attrs) {
 
     fun interface DetentListener {
-        /** [clockwise] is the direction of travel, [intensity] is 0..1 (how fast the dial moves). */
-        fun onDetent(clockwise: Boolean, intensity: Float)
+        /** [clockwise] is the direction of travel, [divisionsPerSecond] how fast the dial is moving. */
+        fun onDetent(clockwise: Boolean, divisionsPerSecond: Float)
     }
 
     var detentListener: DetentListener? = null
@@ -216,7 +216,7 @@ class DialView @JvmOverloads constructor(
         val clockwise = direction > 0
         velocity = 0f
         angle = (angle + (if (clockwise) STEP else -STEP) + 360f) % 360f
-        emitDetent(clockwise, STEP_INTENSITY_SPEED, force = true)
+        emitDetent(clockwise, 0f, force = true) // a single step is slow by definition
         invalidate()
     }
 
@@ -263,7 +263,7 @@ class DialView @JvmOverloads constructor(
         // Very fast flings pass divisions faster than clicks can be told apart: skip, don't machine-gun.
         if (!force && now - lastClickNanos < MIN_CLICK_GAP_NANOS) return
         lastClickNanos = now
-        detentListener?.onDetent(clockwise, (speed / FULL_INTENSITY_SPEED).coerceIn(0f, 1f))
+        detentListener?.onDetent(clockwise, speed / STEP) // speed is in degrees per second
     }
 
     // --- touch ---------------------------------------------------------------------------------
@@ -543,8 +543,6 @@ class DialView @JvmOverloads constructor(
         private const val FRICTION = 7f
         private const val MIN_VELOCITY = 6f
         private const val MAX_FLING_SPEED = 1500f
-        private const val FULL_INTENSITY_SPEED = 500f
-        private const val STEP_INTENSITY_SPEED = 250f
         private const val MIN_CLICK_GAP_NANOS = 12_000_000L
 
         private fun scaleFor(width: Int, height: Int): Float = min(width, height) * 0.38f / R_KN

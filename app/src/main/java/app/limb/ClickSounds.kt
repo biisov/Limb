@@ -5,12 +5,12 @@ import android.media.AudioAttributes
 import android.media.SoundPool
 
 /**
- * Low-latency click playback. The two recordings are played untouched: no pitch or volume changes.
- * Clockwise -> res/raw/click_cw, counter-clockwise -> res/raw/click_ccw.
+ * Low-latency click playback. The two recordings are played untouched (no pitch change), only the
+ * playback volume varies. Clockwise -> res/raw/click_cw, counter-clockwise -> res/raw/click_ccw.
  */
 class ClickSounds(context: Context) {
 
-    // Few streams on purpose: when the dial spins fast, old clicks are cut instead of piling up.
+    // At most 4 clicks at once. A click that is still playing is never stopped by us.
     private val pool: SoundPool = SoundPool.Builder()
         .setMaxStreams(4)
         .setAudioAttributes(
@@ -24,8 +24,9 @@ class ClickSounds(context: Context) {
     private val clockwiseSound = pool.load(context, R.raw.click_cw, 1)
     private val counterClockwiseSound = pool.load(context, R.raw.click_ccw, 1)
 
-    fun play(clockwise: Boolean) {
-        pool.play(if (clockwise) clockwiseSound else counterClockwiseSound, 1f, 1f, 1, 0, 1f)
+    /** [volume] is 0..1. */
+    fun play(clockwise: Boolean, volume: Float) {
+        pool.play(if (clockwise) clockwiseSound else counterClockwiseSound, volume, volume, 1, 0, 1f)
     }
 
     fun release() = pool.release()
