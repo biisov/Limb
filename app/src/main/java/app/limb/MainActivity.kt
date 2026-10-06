@@ -5,11 +5,13 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.KeyEvent
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
+import kotlin.math.roundToLong
 
 class MainActivity : Activity() {
 
@@ -19,11 +21,17 @@ class MainActivity : Activity() {
 
     private val handler = Handler(Looper.getMainLooper())
     private var holdDirection = 0 // +1 clockwise / -1 counter-clockwise while a volume button is held, else 0
+    private var repeatStartedAt = 0L // uptime (ms) of the first continuous step of this hold
     private val repeatStep = object : Runnable {
         override fun run() {
             if (holdDirection == 0) return
-            dial.step(holdDirection)
-            handler.postDelayed(this, HOLD_INTERVAL_MS)
+            val now = SystemClock.uptimeMillis()
+            if (repeatStartedAt == 0L) repeatStartedAt = now
+            // Speed up from HOLD_START_RATE to HOLD_MAX_RATE divisions/s over HOLD_RAMP_MS.
+            val t = ((now - repeatStartedAt) / HOLD_RAMP_MS).coerceIn(0f, 1f)
+            val rate = HOLD_START_RATE + (HOLD_MAX_RATE - HOLD_START_RATE) * t
+            dial.step(holdDirection, rate)
+            handler.postDelayed(this, (1000f / rate).roundToLong())
         }
     }
 
@@ -67,6 +75,7 @@ class MainActivity : Activity() {
     private fun startHold(direction: Int) {
         handler.removeCallbacks(repeatStep)
         holdDirection = direction
+        repeatStartedAt = 0L
         dial.step(direction)
         handler.postDelayed(repeatStep, HOLD_DELAY_MS)
     }
@@ -115,7 +124,11 @@ class MainActivity : Activity() {
         /** Pause before a held volume button starts turning the dial continuously. */
         const val HOLD_DELAY_MS = 400L
 
-        /** Time between divisions while held: ~13 per second. */
-        const val HOLD_INTERVAL_MS = 75L
+        /** Held button: divisions per second at the start of the continuous turning... */
+        const val HOLD_START_RATE = 12f
+
+        /** ...and after [HOLD_RAMP_MS]. Kept just under 1000/35 (the click interval) so every click is heard. */
+        const val HOLD_MAX_RATE = 28f
+        const val HOLD_RAMP_MS = 1500f
     }
 }

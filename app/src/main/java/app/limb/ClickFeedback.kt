@@ -5,25 +5,29 @@ import kotlin.random.Random
 /**
  * Turns dial divisions into sound + haptic ticks, and keeps fast spinning from turning into noise.
  *
- *  - At most one click (and one tick) per [MIN_INTERVAL_MS]. If the dial passes several divisions in
- *    that time, only the first one is played; the others are skipped.
+ *  - At most one click per [SOUND_INTERVAL_MS] and one haptic tick per [HAPTIC_INTERVAL_MS]. If the
+ *    dial passes several divisions in that time, only the first one is played; the others are skipped.
  *  - Volume depends on speed: 100% up to [SLOW_RATE] divisions/s, then smoothly down to
  *    [MIN_VOLUME] at [FAST_RATE] divisions/s and above.
  *  - A small random volume variation (+-[VOLUME_JITTER]) so repeated clicks don't sound identical.
  *
- * Sound and haptics share the same gate, so they always play together.
+ * A tick always goes together with a click (the ticks are just sparser at high speed).
  */
 class ClickFeedback(private val sounds: ClickSounds, private val haptics: Haptics) {
 
-    private var lastNanos = System.nanoTime() - MIN_INTERVAL_NANOS
+    private var lastSoundNanos = System.nanoTime() - SOUND_INTERVAL_NANOS
+    private var lastHapticNanos = System.nanoTime() - HAPTIC_INTERVAL_NANOS
 
     /** [divisionsPerSecond] is how fast the dial is turning when it passes the division. */
     fun onDetent(clockwise: Boolean, divisionsPerSecond: Float) {
         val now = System.nanoTime()
-        if (now - lastNanos < MIN_INTERVAL_NANOS) return
-        lastNanos = now
+        if (now - lastSoundNanos < SOUND_INTERVAL_NANOS) return
+        lastSoundNanos = now
         sounds.play(clockwise, volumeFor(divisionsPerSecond))
-        haptics.tick(clockwise)
+        if (now - lastHapticNanos >= HAPTIC_INTERVAL_NANOS) {
+            lastHapticNanos = now
+            haptics.tick(clockwise)
+        }
     }
 
     private fun volumeFor(divisionsPerSecond: Float): Float {
@@ -35,8 +39,10 @@ class ClickFeedback(private val sounds: ClickSounds, private val haptics: Haptic
     }
 
     private companion object {
-        const val MIN_INTERVAL_MS = 70L // ~14 clicks per second at most
-        const val MIN_INTERVAL_NANOS = MIN_INTERVAL_MS * 1_000_000L
+        const val SOUND_INTERVAL_MS = 35L // ~28 clicks per second at most
+        const val SOUND_INTERVAL_NANOS = SOUND_INTERVAL_MS * 1_000_000L
+        const val HAPTIC_INTERVAL_MS = 70L // ~14 ticks per second at most
+        const val HAPTIC_INTERVAL_NANOS = HAPTIC_INTERVAL_MS * 1_000_000L
         const val SLOW_RATE = 15f // divisions per second: full volume up to here
         const val FAST_RATE = 45f // divisions per second: minimum volume from here
         const val MIN_VOLUME = 0.55f

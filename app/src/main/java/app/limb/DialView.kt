@@ -61,6 +61,13 @@ class DialView @JvmOverloads constructor(
     private var dragging = false
     private var lastTouchAngle = 0f
     private var lastMoveTime = 0L
+
+    // Recent finger movement (time in ms, total angle turned during this touch): the fling speed
+    // is the finger's speed over the last ~VELOCITY_WINDOW_MS. The dial itself follows 1:1.
+    private val sampleTimes = LongArray(VELOCITY_SAMPLES)
+    private val sampleAngles = FloatArray(VELOCITY_SAMPLES)
+    private var sampleCount = 0
+    private var turned = 0f
     private var running = false
     private var lastFrameNanos = 0L
     private var lastClickNanos = 0L
@@ -210,13 +217,14 @@ class DialView @JvmOverloads constructor(
 
     /**
      * Turns the dial exactly one division (clockwise if [direction] > 0), with exactly one detent
-     * event. Any coasting is stopped, so a tap is always one clean click.
+     * event. Any coasting is stopped, so a tap is always one clean click. [divisionsPerSecond] is
+     * the pace of repeated steps (0 for a single tap); it only affects the click volume.
      */
-    fun step(direction: Int) {
+    fun step(direction: Int, divisionsPerSecond: Float = 0f) {
         val clockwise = direction > 0
         velocity = 0f
         angle = (angle + (if (clockwise) STEP else -STEP) + 360f) % 360f
-        emitDetent(clockwise, 0f, force = true) // a single step is slow by definition
+        emitDetent(clockwise, divisionsPerSecond * STEP, force = true)
         invalidate()
     }
 
@@ -274,13 +282,16 @@ class DialView @JvmOverloads constructor(
     override fun onTouchEvent(e: MotionEvent): Boolean {
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                velocity = 0f // any touch stops the coasting at once
                 val dist = hypot(e.x - cx, e.y - cy)
                 if (dist > radius * 1.1f) return false
                 parent?.requestDisallowInterceptTouchEvent(true)
                 dragging = true
-                velocity = 0f
                 lastTouchAngle = touchAngle(e)
                 lastMoveTime = e.eventTime
+                sampleCount = 0
+                turned = 0f
+                addSample(e.eventTime)
                 ensureRunning()
                 return true
             }
@@ -292,13 +303,11 @@ class DialView @JvmOverloads constructor(
                 if (d > 180f) d -= 360f
                 if (d <= -180f) d += 360f
                 lastTouchAngle = a
-                val dtSec = (e.eventTime - lastMoveTime) / 1000f
                 lastMoveTime = e.eventTime
-                if (dtSec > 0f) {
-                    val instant = d / dtSec
-                    velocity = velocity * 0.6f + instant * 0.4f
-                }
-                moveBy(d, abs(velocity))
+                turned += d
+                addSample(e.eventTime)
+                velocity = fingerVelocity() // only used for the fling and the click volume
+                moveBy(d, abs(velocity)) // the dial follows the finger exactly
                 return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
@@ -311,6 +320,31 @@ class DialView @JvmOverloads constructor(
             }
         }
         return super.onTouchEvent(e)
+    }
+
+    private fun addSample(time: Long) {
+        if (sampleCount > 0 && sampleTimes[sampleCount - 1] == time) {
+            sampleAngles[sampleCount - 1] = turned // several events in the same millisecond
+            return
+        }
+        if (sampleCount == VELOCITY_SAMPLES) {
+            System.arraycopy(sampleTimes, 1, sampleTimes, 0, VELOCITY_SAMPLES - 1)
+            System.arraycopy(sampleAngles, 1, sampleAngles, 0, VELOCITY_SAMPLES - 1)
+            sampleCount--
+        }
+        sampleTimes[sampleCount] = time
+        sampleAngles[sampleCount] = turned
+        sampleCount++
+    }
+
+    /** Speed of the finger over the last [VELOCITY_WINDOW_MS], in degrees per second. */
+    private fun fingerVelocity(): Float {
+        if (sampleCount < 2) return 0f
+        val newest = sampleCount - 1
+        var oldest = newest - 1
+        while (oldest > 0 && sampleTimes[newest] - sampleTimes[oldest - 1] <= VELOCITY_WINDOW_MS) oldest--
+        val dtSec = (sampleTimes[newest] - sampleTimes[oldest]) / 1000f
+        return if (dtSec > 0f) (sampleAngles[newest] - sampleAngles[oldest]) / dtSec else 0f
     }
 
     override fun onDetachedFromWindow() {
@@ -540,9 +574,12 @@ class DialView @JvmOverloads constructor(
         private val KN_BASE_COLORS = intArrayOf(opaque(0x7C7D80), opaque(0x3A3B3E), opaque(0x232325), opaque(0x55565A))
         private val KN_BASE_POS = floatArrayOf(0f, 0.45f, 0.7f, 1f)
 
-        private const val FRICTION = 7f
+        // After a fling the dial coasts and slows down exponentially: ~1-1.3 s for a typical fling.
+        private const val FRICTION = 4.5f
         private const val MIN_VELOCITY = 6f
-        private const val MAX_FLING_SPEED = 1500f
+        private const val MAX_FLING_SPEED = 2500f
+        private const val VELOCITY_SAMPLES = 12
+        private const val VELOCITY_WINDOW_MS = 100L
         private const val MIN_CLICK_GAP_NANOS = 12_000_000L
 
         private fun scaleFor(width: Int, height: Int): Float = min(width, height) * 0.38f / R_KN
