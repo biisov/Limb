@@ -9,7 +9,7 @@ import kotlin.random.Random
 class ClickSounds(context: Context) {
 
     private val pool: SoundPool = SoundPool.Builder()
-        .setMaxStreams(16)
+        .setMaxStreams(4)
         .setAudioAttributes(
             AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_GAME)
@@ -26,7 +26,7 @@ class ClickSounds(context: Context) {
     fun play(clockwise: Boolean, intensity: Float) {
         val variants = if (clockwise) forward else backward
         val volume = (0.55f + 0.45f * intensity).coerceIn(0f, 1f)
-        val rate = 0.95f + Random.nextFloat() * 0.10f // tiny pitch jitter so it doesn't sound sampled
+        val rate = 0.97f + Random.nextFloat() * 0.06f // tiny pitch jitter so it does not sound sampled
         pool.play(variants[Random.nextInt(variants.size)], volume, volume, 1, 0, rate)
     }
 
