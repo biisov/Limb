@@ -127,7 +127,7 @@ class MainActivity : Activity() {
         /** Held button: divisions per second at the start of the continuous turning... */
         const val HOLD_START_RATE = 12f
 
-        /** ...and after [HOLD_RAMP_MS]. Kept just under 1000/35 (the click interval) so every click is heard. */
+        /** ...and after [HOLD_RAMP_MS]. Stays under 1000/30 (the click interval) so every click is heard. */
         const val HOLD_MAX_RATE = 28f
         const val HOLD_RAMP_MS = 1500f
     }

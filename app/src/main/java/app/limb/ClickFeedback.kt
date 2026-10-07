@@ -39,7 +39,7 @@ class ClickFeedback(private val sounds: ClickSounds, private val haptics: Haptic
     }
 
     private companion object {
-        const val SOUND_INTERVAL_MS = 35L // ~28 clicks per second at most
+        const val SOUND_INTERVAL_MS = 30L // ~33 clicks per second at most
         const val SOUND_INTERVAL_NANOS = SOUND_INTERVAL_MS * 1_000_000L
         const val HAPTIC_INTERVAL_MS = 70L // ~14 ticks per second at most
         const val HAPTIC_INTERVAL_NANOS = HAPTIC_INTERVAL_MS * 1_000_000L
