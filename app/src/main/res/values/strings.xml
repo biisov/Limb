@@ -1,3 +1,15 @@
 <resources>
     <string name="app_name">Limb</string>
+
+    <string name="mode_free">Свободный</string>
+    <string name="mode_hack">Взлом сейфа</string>
+    <string name="safe_of_the_day">Сейф дня</string>
+    <string name="opened">Открыто · %1$s</string>
+    <string name="stats">Вскрыто: %1$d · Лучшее: %2$s · Серия: %3$d дн.</string>
+    <string name="difficulty_title">Сложность</string>
+    <string name="difficulty_easy">Лёгкий</string>
+    <string name="difficulty_normal">Обычный</string>
+    <string name="difficulty_hard">Сложный</string>
+    <string name="difficulty_set">Сложность: %1$s</string>
+    <string name="mode_button_description">Режим: свободный или взлом сейфа. Долгое нажатие — сложность</string>
 </resources>

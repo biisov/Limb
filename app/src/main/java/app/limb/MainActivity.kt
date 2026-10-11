@@ -18,6 +18,7 @@ class MainActivity : Activity() {
     private lateinit var dial: DialView
     private lateinit var sounds: ClickSounds
     private lateinit var haptics: Haptics
+    private lateinit var hack: HackController
 
     private val handler = Handler(Looper.getMainLooper())
     private var holdDirection = 0 // +1 clockwise / -1 counter-clockwise while a volume button is held, else 0
@@ -45,8 +46,27 @@ class MainActivity : Activity() {
         haptics = Haptics(dial)
         // Sound and haptic tick are always played together, rate-limited - touch, fling or volume keys.
         val feedback = ClickFeedback(sounds, haptics)
-        dial.detentListener = DialView.DetentListener { clockwise, divisionsPerSecond ->
-            feedback.onDetent(clockwise, divisionsPerSecond)
+
+        // Safe-cracking mode (the free mode is simply this being switched off).
+        hack = HackController(
+            this,
+            dial,
+            findViewById(R.id.progress_dots),
+            findViewById(R.id.status_text),
+            findViewById(R.id.stats_text),
+            sounds,
+            haptics,
+        )
+        dial.rotationListener = DialView.RotationListener { degrees -> hack.onRotated(degrees) }
+        dial.detentListener = DialView.DetentListener { clockwise, divisionsPerSecond, number, crossings ->
+            feedback.onDetent(clockwise, divisionsPerSecond, hack.hintFor(clockwise, number, crossings))
+        }
+        findViewById<View>(R.id.mode_button).apply {
+            setOnClickListener { hack.toggle() }
+            setOnLongClickListener {
+                hack.chooseDifficulty()
+                true
+            }
         }
     }
 
@@ -85,14 +105,21 @@ class MainActivity : Activity() {
         handler.removeCallbacks(repeatStep)
     }
 
+    override fun onResume() {
+        super.onResume()
+        hack.onResume()
+    }
+
     override fun onPause() {
         // A key-up can be lost when we leave the screen; never keep spinning in the background.
         stopHold()
+        hack.onPause()
         super.onPause()
     }
 
     override fun onDestroy() {
         stopHold()
+        hack.release()
         sounds.release()
         super.onDestroy()
     }

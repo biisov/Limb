@@ -1,5 +1,7 @@
 package app.limb
 
+import android.animation.AnimatorSet
+import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BlurMaskFilter
@@ -16,6 +18,8 @@ import android.util.AttributeSet
 import android.view.Choreographer
 import android.view.MotionEvent
 import android.view.View
+import android.view.animation.DecelerateInterpolator
+import android.view.animation.OvershootInterpolator
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.ceil
@@ -49,11 +53,35 @@ class DialView @JvmOverloads constructor(
 ) : View(context, attrs) {
 
     fun interface DetentListener {
-        /** [clockwise] is the direction of travel, [divisionsPerSecond] how fast the dial is moving. */
-        fun onDetent(clockwise: Boolean, divisionsPerSecond: Float)
+        /**
+         * [clockwise] is the direction of travel, [divisionsPerSecond] how fast the dial is moving.
+         * [number] is the scale number now under the pointer; if several divisions were passed since
+         * the last event, [crossings] says how many (the numbers passed end at [number]).
+         */
+        fun onDetent(clockwise: Boolean, divisionsPerSecond: Float, number: Int, crossings: Int)
     }
 
     var detentListener: DetentListener? = null
+
+    fun interface RotationListener {
+        /** Called for every movement of the dial, [degrees] clockwise positive. */
+        fun onRotated(degrees: Float)
+    }
+
+    var rotationListener: RotationListener? = null
+
+    /** Extra rotation of the drawn dial only (the "turn-over" when a safe opens); does not affect clicks. */
+    private var visualOffset = 0f
+
+    /** 0..1: how far the pointer has turned from grey to gold. */
+    var pointerGlow = 0f
+        set(value) {
+            field = value.coerceIn(0f, 1f)
+            invalidate()
+        }
+
+    /** The scale number under the pointer (the nearest one). */
+    val currentNumber: Int get() = Math.floorMod(-(angle / STEP).roundToInt(), DETENTS)
 
     // --- physics state -------------------------------------------------------------------------
     private var angle = 0f // degrees, clockwise positive, kept in [0, 360)
@@ -224,8 +252,33 @@ class DialView @JvmOverloads constructor(
         val clockwise = direction > 0
         velocity = 0f
         angle = (angle + (if (clockwise) STEP else -STEP) + 360f) % 360f
-        emitDetent(clockwise, divisionsPerSecond * STEP, force = true)
+        rotationListener?.onRotated(if (clockwise) STEP else -STEP)
+        emitDetent(clockwise, divisionsPerSecond * STEP, currentNumber, 1, force = true)
         invalidate()
+    }
+
+    /** A short extra turn of the drawn dial with an elastic return: the "click" of a safe opening. */
+    fun playUnlockTurn() {
+        val out = ValueAnimator.ofFloat(0f, UNLOCK_TURN_DEG).apply {
+            duration = 160
+            interpolator = DecelerateInterpolator()
+            addUpdateListener {
+                visualOffset = it.animatedValue as Float
+                invalidate()
+            }
+        }
+        val back = ValueAnimator.ofFloat(UNLOCK_TURN_DEG, 0f).apply {
+            duration = 650
+            interpolator = OvershootInterpolator(3.5f)
+            addUpdateListener {
+                visualOffset = it.animatedValue as Float
+                invalidate()
+            }
+        }
+        AnimatorSet().apply {
+            playSequentially(out, back)
+            start()
+        }
     }
 
     // --- animation -----------------------------------------------------------------------------
@@ -260,18 +313,24 @@ class DialView @JvmOverloads constructor(
         if (delta == 0f) return
         val oldIndex = floor(angle / STEP).toInt()
         angle += delta
-        val crossings = floor(angle / STEP).toInt() - oldIndex
+        val newIndex = floor(angle / STEP).toInt()
+        val crossings = newIndex - oldIndex
         while (angle >= 360f) angle -= 360f
         while (angle < 0f) angle += 360f
-        if (crossings != 0) emitDetent(crossings > 0, speed, force = false)
+        rotationListener?.onRotated(delta)
+        if (crossings != 0) {
+            // The last division passed has a number exactly under the pointer at that moment.
+            val boundary = if (crossings > 0) newIndex else newIndex + 1
+            emitDetent(crossings > 0, speed, Math.floorMod(-boundary, DETENTS), abs(crossings), force = false)
+        }
     }
 
-    private fun emitDetent(clockwise: Boolean, speed: Float, force: Boolean) {
+    private fun emitDetent(clockwise: Boolean, speed: Float, number: Int, crossings: Int, force: Boolean) {
         val now = System.nanoTime()
         // Very fast flings pass divisions faster than clicks can be told apart: skip, don't machine-gun.
         if (!force && now - lastClickNanos < MIN_CLICK_GAP_NANOS) return
         lastClickNanos = now
-        detentListener?.onDetent(clockwise, speed / STEP) // speed is in degrees per second
+        detentListener?.onDetent(clockwise, speed / STEP, number, crossings) // speed is in degrees per second
     }
 
     // --- touch ---------------------------------------------------------------------------------
@@ -474,13 +533,14 @@ class DialView @JvmOverloads constructor(
         canvas.scale(scale, scale)
 
         // ---- fixed: pointer and the shadow under the dial
+        pointerPaint.color = lerpColor(opaque(0x8A8A8A), opaque(GOLD_RGB), pointerGlow)
         canvas.drawPath(pointerPath, pointerPaint)
         drawLayer(canvas, bigShadow)
 
         // ---- fixed base of the knurled ring, then ROTATING knurling, then fixed lighting on top
         canvas.drawCircle(0f, 0f, R_KN, knBasePaint)
         canvas.save()
-        canvas.rotate(angle)
+        canvas.rotate(angle + visualOffset)
         drawLayer(canvas, knurl)
         canvas.restore()
         canvas.drawCircle(0f, 0f, (R_KN + R_KI) / 2f, knShadePaint)
@@ -495,7 +555,7 @@ class DialView @JvmOverloads constructor(
         canvas.drawCircle(0f, 0f, R_SC, facePaint)
         canvas.drawCircle(0f, 0f, R_SC - 1f, faceEdge)
         canvas.save()
-        canvas.rotate(angle)
+        canvas.rotate(angle + visualOffset)
         canvas.drawLines(shortTicks, shortTickPaint)
         canvas.drawLines(longTicks, longTickPaint)
         for (i in numbers.indices) {
@@ -582,7 +642,18 @@ class DialView @JvmOverloads constructor(
         private const val VELOCITY_WINDOW_MS = 100L
         private const val MIN_CLICK_GAP_NANOS = 12_000_000L
 
+        private const val UNLOCK_TURN_DEG = 10f
+
         private fun scaleFor(width: Int, height: Int): Float = min(width, height) * 0.38f / R_KN
+
+        /** Y (in pixels) of the bottom of the knurled ring for a view of this size. */
+        fun dialBottom(width: Int, height: Int): Float = height / 2f + R_KN * scaleFor(width, height)
+
+        private fun lerpColor(from: Int, to: Int, t: Float): Int {
+            if (t <= 0f) return from
+            fun ch(shift: Int) = ((from shr shift and 0xFF) + ((to shr shift and 0xFF) - (from shr shift and 0xFF)) * t).roundToInt()
+            return (0xFF shl 24) or (ch(16) shl 16) or (ch(8) shl 8) or ch(0)
+        }
 
         /** Y (in pixels) of the top of the fixed pointer for a view of this size. The dial is centred. */
         fun pointerTop(width: Int, height: Int): Float =

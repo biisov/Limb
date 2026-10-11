@@ -2,6 +2,17 @@ package app.limb
 
 import kotlin.random.Random
 
+/** What the safe-cracking mode wants for a click. */
+enum class Hint {
+    NONE,
+
+    /** The right number: the special click and a stronger tick. */
+    HIT,
+
+    /** The right number on the hardest level: the normal click, but a stronger tick. */
+    HAPTIC_ONLY,
+}
+
 /**
  * Turns dial divisions into sound + haptic ticks, and keeps fast spinning from turning into noise.
  *
@@ -12,6 +23,7 @@ import kotlin.random.Random
  *  - A small random volume variation (+-[VOLUME_JITTER]) so repeated clicks don't sound identical.
  *
  * A tick always goes together with a click (the ticks are just sparser at high speed).
+ * A [Hint] is never skipped by these limits: the special click (or stronger tick) replaces the normal one.
  */
 class ClickFeedback(private val sounds: ClickSounds, private val haptics: Haptics) {
 
@@ -19,14 +31,32 @@ class ClickFeedback(private val sounds: ClickSounds, private val haptics: Haptic
     private var lastHapticNanos = System.nanoTime() - HAPTIC_INTERVAL_NANOS
 
     /** [divisionsPerSecond] is how fast the dial is turning when it passes the division. */
-    fun onDetent(clockwise: Boolean, divisionsPerSecond: Float) {
+    fun onDetent(clockwise: Boolean, divisionsPerSecond: Float, hint: Hint = Hint.NONE) {
         val now = System.nanoTime()
-        if (now - lastSoundNanos < SOUND_INTERVAL_NANOS) return
-        lastSoundNanos = now
-        sounds.play(clockwise, volumeFor(divisionsPerSecond))
-        if (now - lastHapticNanos >= HAPTIC_INTERVAL_NANOS) {
-            lastHapticNanos = now
-            haptics.tick(clockwise)
+        when (hint) {
+            Hint.HIT -> {
+                lastSoundNanos = now
+                lastHapticNanos = now
+                sounds.playHit(volumeFor(divisionsPerSecond))
+                haptics.hit(clockwise)
+            }
+            Hint.HAPTIC_ONLY -> {
+                if (now - lastSoundNanos >= SOUND_INTERVAL_NANOS) {
+                    lastSoundNanos = now
+                    sounds.play(clockwise, volumeFor(divisionsPerSecond))
+                }
+                lastHapticNanos = now
+                haptics.hit(clockwise)
+            }
+            Hint.NONE -> {
+                if (now - lastSoundNanos < SOUND_INTERVAL_NANOS) return
+                lastSoundNanos = now
+                sounds.play(clockwise, volumeFor(divisionsPerSecond))
+                if (now - lastHapticNanos >= HAPTIC_INTERVAL_NANOS) {
+                    lastHapticNanos = now
+                    haptics.tick(clockwise)
+                }
+            }
         }
     }
 
