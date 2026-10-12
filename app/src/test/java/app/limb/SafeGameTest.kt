@@ -62,33 +62,43 @@ class SafeGameTest {
         assertEquals(5, SafeCode.distance(57, 2))
     }
 
+    // The order is: counter-clockwise (numbers under the pointer go up), clockwise, counter-clockwise.
+
     @Test
     fun openingTheSafe() {
         val s = SimDial(code)
-        s.goTo(10, clockwise = true)
+        s.goTo(10, clockwise = false)
         s.idle(500)
         assertTrue("not yet after 0.5 s", s.events.isEmpty())
         s.idle(200)
         assertEquals(listOf<Event>(Event.StepDialed(0)), s.events)
-        s.goTo(30, clockwise = false)
+        s.goTo(30, clockwise = true)
         s.idle(700)
         assertEquals(Event.StepDialed(1), s.events.last())
-        s.goTo(50, clockwise = true)
+        s.goTo(50, clockwise = false)
         s.idle(700)
         assertEquals(Event.Opened, s.events.last())
         assertTrue(s.game.opened)
-        s.turn(5, true)
+        s.turn(5, false)
         s.idle(1000)
         assertEquals(3, s.events.size)
     }
 
     @Test
-    fun wrongNumberIsQuietlyIgnored() {
+    fun theFirstNumberCannotBeDialedClockwise() {
         val s = SimDial(code)
-        s.goTo(12, clockwise = true)
+        s.goTo(10, clockwise = true)
         s.idle(2000)
         assertTrue(s.events.isEmpty())
-        s.goTo(10, clockwise = true)
+    }
+
+    @Test
+    fun wrongNumberIsQuietlyIgnored() {
+        val s = SimDial(code)
+        s.goTo(8, clockwise = false)
+        s.idle(2000)
+        assertTrue(s.events.isEmpty())
+        s.goTo(10, clockwise = false)
         s.idle(700)
         assertEquals(listOf<Event>(Event.StepDialed(0)), s.events)
     }
@@ -96,14 +106,14 @@ class SafeGameTest {
     @Test
     fun arrivingTheWrongWayDoesNotCount() {
         val s = SimDial(code)
-        s.goTo(10, clockwise = true)
-        s.turn(3, true)
+        s.goTo(10, clockwise = false)
         s.turn(3, false)
+        s.turn(3, true)
         assertEquals(10, s.number)
         s.idle(2000)
         assertTrue(s.events.isEmpty())
-        s.goTo(13, clockwise = false)
-        s.goTo(10, clockwise = true)
+        s.goTo(7, clockwise = true)
+        s.goTo(10, clockwise = false)
         s.idle(700)
         assertEquals(listOf<Event>(Event.StepDialed(0)), s.events)
     }
@@ -111,20 +121,20 @@ class SafeGameTest {
     @Test
     fun startingTheWrongWayAfterANumberResets() {
         val s = SimDial(code)
-        s.goTo(10, true)
+        s.goTo(10, false)
         s.idle(700)
         assertEquals(1, s.game.step)
-        s.turn(2, true)
+        s.turn(2, false) // step 2 is clockwise
         assertEquals(Event.Reset, s.events.last())
         assertEquals(0, s.game.step)
 
         val t = SimDial(code)
-        t.goTo(10, true)
+        t.goTo(10, false)
         t.idle(700)
-        t.goTo(30, false)
+        t.goTo(30, true)
         t.idle(700)
         assertEquals(2, t.game.step)
-        t.turn(2, false)
+        t.turn(2, true) // step 3 is counter-clockwise
         assertEquals(Event.Reset, t.events.last())
         assertEquals(0, t.game.step)
     }
@@ -132,29 +142,57 @@ class SafeGameTest {
     @Test
     fun turningBackInTheMiddleOfAStepIsQuiet() {
         val s = SimDial(code)
-        s.goTo(10, true)
+        s.goTo(10, false)
         s.idle(700)
-        s.goTo(25, false)
-        s.turn(8, true)
+        s.goTo(25, true)
+        s.turn(8, false)
         assertEquals(1, s.game.step)
         assertEquals(1, s.events.size)
-        s.goTo(30, false)
+        s.goTo(30, true)
         s.idle(700)
         assertEquals(Event.StepDialed(1), s.events.last())
     }
 
     @Test
+    fun afterAResetTheFirstNumberCanBeDialedAgain() {
+        val s = SimDial(code)
+        s.goTo(10, false)
+        s.idle(700)
+        s.turn(2, false)
+        assertEquals(Event.Reset, s.events.last())
+        s.goTo(8, true)
+        s.goTo(10, false)
+        s.idle(700)
+        assertEquals(1, s.game.step)
+        assertEquals(2, s.events.count { it is Event.StepDialed })
+    }
+
+    @Test
     fun aRestoredGameDoesNotPunishTheFirstMove() {
         val s = SimDial(code, step = 1)
-        s.turn(2, true)
+        s.turn(2, false)
         assertEquals(1, s.game.step)
         assertTrue(s.events.isEmpty())
     }
 
     @Test
+    fun smallWobbleDoesNotSpoilTheApproach() {
+        val s = SimDial(code)
+        s.goTo(9, clockwise = false)
+        s.now += 50
+        s.game.onRotated(3f, s.now) // a few degrees the other way (finger jitter)...
+        s.now += 50
+        s.game.onRotated(-3f, s.now)
+        s.turn(1, false)
+        s.idle(700)
+        assertEquals(10, s.number)
+        assertEquals(listOf<Event>(Event.StepDialed(0)), s.events)
+    }
+
+    @Test
     fun smallJitterCountsAsStandingStill() {
         val s = SimDial(code)
-        s.goTo(10, true)
+        s.goTo(10, false)
         repeat(12) {
             s.now += 50
             s.game.onRotated(if (it % 2 == 0) 0.4f else -0.4f, s.now)
@@ -165,20 +203,24 @@ class SafeGameTest {
 
     @Test
     fun hints() {
-        val g = SafeGame(code)
-        assertTrue(g.isHint(10, clockwise = true, crossings = 1, margin = 0))
-        assertFalse("wrong direction", g.isHint(10, clockwise = false, crossings = 1, margin = 0))
-        assertFalse(g.isHint(11, true, 1, 0))
-        assertFalse(g.isHint(9, true, 1, 0))
-        assertTrue("easy: neighbours too", g.isHint(11, true, 1, 1) && g.isHint(9, true, 1, 1))
-        assertFalse(g.isHint(12, true, 1, 1))
-        assertTrue("10 was among the 3 passed (10, 9, 8)", g.isHint(8, true, 3, 0))
-        assertFalse("not among the 2 passed (9, 8)", g.isHint(8, true, 2, 0))
+        val g = SafeGame(code) // step 1: counter-clockwise
+        assertTrue(g.isHint(10, clockwise = false, crossings = 1, margin = 0))
+        assertFalse("wrong direction", g.isHint(10, clockwise = true, crossings = 1, margin = 0))
+        assertFalse(g.isHint(11, false, 1, 0))
+        assertFalse(g.isHint(9, false, 1, 0))
+        assertTrue("easy: neighbours too", g.isHint(11, false, 1, 1) && g.isHint(9, false, 1, 1))
+        assertFalse(g.isHint(12, false, 1, 1))
+        assertTrue("10 was among the 3 passed (10, 11, 12)", g.isHint(12, false, 3, 0))
+        assertFalse("not among the 2 passed (12, 11)", g.isHint(12, false, 2, 0))
 
-        val g2 = SafeGame(code, startStep = 1)
-        assertTrue(g2.isHint(30, false, 1, 0))
-        assertFalse(g2.isHint(30, true, 1, 0))
-        assertTrue("30 was among (30, 31, 32)", g2.isHint(32, false, 3, 0))
-        assertFalse("not among (26, 27, 28)", g2.isHint(28, false, 3, 0))
+        val g2 = SafeGame(code, startStep = 1) // step 2: clockwise
+        assertTrue(g2.isHint(30, true, 1, 0))
+        assertFalse(g2.isHint(30, false, 1, 0))
+        assertTrue("30 was among (30, 29, 28)", g2.isHint(28, true, 3, 0))
+        assertFalse("not among (34, 33, 32)", g2.isHint(32, true, 3, 0))
+
+        val g3 = SafeGame(code, startStep = 2) // step 3: counter-clockwise again
+        assertTrue(g3.isHint(50, false, 1, 0))
+        assertFalse(g3.isHint(50, true, 1, 0))
     }
 }

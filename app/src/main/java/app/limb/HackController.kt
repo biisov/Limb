@@ -50,16 +50,12 @@ class HackController(
             handler.postDelayed(this, TICK_MS)
         }
     }
-    private val hideCaption = Runnable {
-        caption.animate().alpha(0f).setDuration(FADE_MS).start()
-        statsLine.animate().alpha(0f).setDuration(FADE_MS).start()
-    }
+    private var captionFadeOutMs = FADE_MS
+    private var openedCaptionShown = false // the "Opened" text (and statistics) is on screen
+    private val hideCaption = Runnable { fadeOutCaption(captionFadeOutMs) }
     private val nextSafe = Runnable {
         startNewSafe()
-        if (active) {
-            showSafeKind()
-            dots.filled = 0
-        }
+        if (active) dots.filled = 0
     }
 
     // --- mode ----------------------------------------------------------------------------------
@@ -127,8 +123,15 @@ class HackController(
     // --- the dial ------------------------------------------------------------------------------
 
     fun onRotated(degrees: Float) {
+        if (!active) return
+        // Turning the dial (finger or volume keys) takes the "Opened" text away at once...
+        if (openedCaptionShown) {
+            handler.removeCallbacks(hideCaption)
+            fadeOutCaption(DISMISS_FADE_MS)
+        }
+        // ...and that very movement already counts for the new safe (once it exists).
         val g = game
-        if (!active || g == null || phase != Phase.PLAYING) return
+        if (g == null || phase != Phase.PLAYING) return
         if (runningSince == 0L) runningSince = now() // the clock runs from the first movement
         handle(g.onRotated(degrees, now()))
     }
@@ -184,7 +187,11 @@ class HackController(
                 if (best != null) formatTime(best) else "–",
                 store.streak(today),
             ),
+            fadeInMs = OPENED_FADE_IN_MS,
+            fadeOutMs = OPENED_FADE_OUT_MS,
         )
+        openedCaptionShown = true
+        // The new safe is ready as soon as the opening animation is over, text or no text.
         handler.removeCallbacks(nextSafe)
         handler.postDelayed(nextSafe, NEXT_SAFE_MS)
     }
@@ -252,10 +259,6 @@ class HackController(
         persist()
     }
 
-    private fun showSafeKind() {
-        if (isDaily) showCaption(activity.getString(R.string.safe_of_the_day), CAPTION_MS)
-    }
-
     private fun persist() {
         val g = game ?: return
         store.saveSafe(
@@ -290,23 +293,40 @@ class HackController(
 
     // --- text ----------------------------------------------------------------------------------
 
-    private fun showCaption(text: String, holdMs: Long, stats: String? = null) {
+    private fun showCaption(
+        text: String,
+        holdMs: Long,
+        stats: String? = null,
+        fadeInMs: Long = FADE_MS / 2,
+        fadeOutMs: Long = FADE_MS,
+    ) {
         handler.removeCallbacks(hideCaption)
         caption.animate().cancel()
         statsLine.animate().cancel()
+        openedCaptionShown = false
+        captionFadeOutMs = fadeOutMs
         caption.text = text
         statsLine.text = stats ?: ""
-        caption.animate().alpha(1f).setDuration(FADE_MS / 2).start()
-        statsLine.animate().alpha(if (stats != null) 1f else 0f).setDuration(FADE_MS / 2).start()
+        caption.animate().alpha(1f).setDuration(fadeInMs).start()
+        statsLine.animate().alpha(if (stats != null) 1f else 0f).setDuration(fadeInMs).start()
         handler.postDelayed(hideCaption, holdMs)
+    }
+
+    private fun fadeOutCaption(durationMs: Long) {
+        openedCaptionShown = false
+        caption.animate().alpha(0f).setDuration(durationMs).start()
+        statsLine.animate().alpha(0f).setDuration(durationMs).start()
     }
 
     private companion object {
         const val TICK_MS = 50L
         const val CAPTION_MS = 1000L
-        const val OPENED_MS = 2000L
-        const val NEXT_SAFE_MS = 2500L
-        const val FLASH_MS = 1600L
+        const val OPENED_MS = 5000L // the "Opened" text stays up to this long
+        const val OPENED_FADE_IN_MS = 400L
+        const val OPENED_FADE_OUT_MS = 600L
+        const val DISMISS_FADE_MS = 200L // ...or fades out this fast once the dial is turned
+        const val NEXT_SAFE_MS = 1000L // the new safe appears after the opening animation
+        const val FLASH_MS = 1000L
         const val FADE_MS = 300L
     }
 }

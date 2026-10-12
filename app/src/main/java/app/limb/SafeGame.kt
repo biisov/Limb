@@ -15,8 +15,8 @@ enum class Difficulty(
 }
 
 /**
- * The rules of cracking a safe, with no Android in it: the dial is turned CLOCKWISE to the 1st number,
- * COUNTER-CLOCKWISE to the 2nd and CLOCKWISE to the 3rd.
+ * The rules of cracking a safe, with no Android in it: the dial is turned COUNTER-CLOCKWISE to the 1st
+ * number (the numbers under the pointer go up), CLOCKWISE to the 2nd and COUNTER-CLOCKWISE to the 3rd.
  *
  * A number is dialed when the dial comes to rest on it (under the pointer) for [DWELL_MS], having
  * arrived in the right direction. Missing it (wrong number, direction changed) just means "not yet".
@@ -135,8 +135,8 @@ class SafeGame(val code: IntArray, startStep: Int = 0, nowMs: Long = 0L) {
     }
 
     companion object {
-        /** Clockwise, counter-clockwise, clockwise. */
-        private val DIRECTIONS = intArrayOf(1, -1, 1)
+        /** Counter-clockwise, clockwise, counter-clockwise. */
+        private val DIRECTIONS = intArrayOf(-1, 1, -1)
 
         const val DWELL_MS = 600L
         const val TURN_DEG = 6f // one division: this much travel against the direction turns it around
