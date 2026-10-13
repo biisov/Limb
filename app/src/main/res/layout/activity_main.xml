@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<app.limb.MainLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <app.limb.DialView
+        android:id="@+id/dial"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- Empty slot above the dial. Size and position are set by MainLayout.
+         To show an ad banner instead of the lock, remove @id/ad_placeholder and add the banner view here. -->
+    <FrameLayout
+        android:id="@+id/ad_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/ad_panel_background">
+
+        <ImageView
+            android:id="@+id/ad_placeholder"
+            android:layout_width="19dp"
+            android:layout_height="28dp"
+            android:layout_gravity="center"
+            android:importantForAccessibility="no"
+            android:src="@drawable/ic_lock" />
+    </FrameLayout>
+
+    <!-- Safe-cracking mode: three dots between the slot and the pointer (placed by MainLayout). -->
+    <app.limb.ProgressDots
+        android:id="@+id/progress_dots"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:visibility="gone" />
+
+    <!-- Difficulty selector (safe-cracking mode only), below the dial (placed by MainLayout). -->
+    <app.limb.DifficultyDrum
+        android:id="@+id/difficulty_drum"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:alpha="0"
+        android:visibility="gone" />
+
+    <!-- Mode name, "Opened" and statistics: shown briefly below the drum (placed by MainLayout). -->
+    <LinearLayout
+        android:id="@+id/status_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_horizontal"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/status_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:alpha="0"
+            android:fontFamily="sans-serif-light"
+            android:textColor="#C8C8C8"
+            android:textSize="18sp" />
+
+        <TextView
+            android:id="@+id/stats_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:alpha="0"
+            android:fontFamily="sans-serif-light"
+            android:textColor="#8A8A8A"
+            android:textSize="13sp" />
+    </LinearLayout>
+
+    <!-- Small, quiet key: a tap switches Free / Safe cracking. -->
+    <ImageButton
+        android:id="@+id/mode_button"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:layout_gravity="bottom|end"
+        android:layout_margin="16dp"
+        android:alpha="0.55"
+        android:background="?android:attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/mode_button_description"
+        android:padding="10dp"
+        android:scaleType="fitCenter"
+        android:src="@drawable/ic_key" />
+</app.limb.MainLayout>

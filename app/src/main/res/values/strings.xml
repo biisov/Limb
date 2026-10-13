@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">Limb</string>
+
+    <string name="mode_free">Free</string>
+    <string name="mode_hack">Safe cracking</string>
+    <string name="safe_of_the_day">Safe of the day</string>
+    <string name="opened">Unlocked · %1$s</string>
+    <string name="stats">Cracked: %1$d · Best: %2$s · Streak: %3$d days</string>
+    <string name="mode_button_description">Switch mode: free or safe cracking</string>
+    <string name="drum_description">Difficulty: %1$s</string>
+</resources>

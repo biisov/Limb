@@ -1,0 +1,33 @@
+name: Build APK
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # One Gradle run builds the APK and runs the unit tests; --continue builds the APK even if a test fails.
+      - name: Build debug APK and run unit tests
+        run: ./gradlew --no-daemon --continue assembleDebug testDebugUnitTest
+
+      # The APK is uploaded on every push, also when the tests failed. A missing APK fails this step
+      # (instead of silently uploading nothing).
+      - name: Upload APK
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: limb-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
