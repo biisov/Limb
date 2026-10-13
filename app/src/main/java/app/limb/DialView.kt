@@ -76,6 +76,9 @@ class DialView @JvmOverloads constructor(
     /** The scale number under the pointer (the nearest one). */
     val currentNumber: Int get() = Math.floorMod(-(angle / STEP).roundToInt(), DETENTS)
 
+    /** The dial's angle in degrees, clockwise positive (the number under the pointer follows from it). */
+    val angleDegrees: Float get() = angle
+
     // --- physics state -------------------------------------------------------------------------
     private var angle = 0f // degrees, clockwise positive, kept in [0, 360)
     private var velocity = 0f // degrees per second

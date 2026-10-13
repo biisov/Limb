@@ -3,15 +3,19 @@ package app.limb
 import android.content.Context
 import android.util.AttributeSet
 import android.view.Gravity
+import android.os.Build
 import android.view.View
+import android.view.WindowInsets
 import android.widget.FrameLayout
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
  * The screen: the dial fills it, and the slot (`@id/ad_container`) sits above the dial.
  *
- * Below the dial: the difficulty drum (safe-cracking mode only), and under it the short texts.
+ * Below the dial: the difficulty drum (safe-cracking mode only), and under it the short texts. The drum
+ * keeps clear of the navigation bar and the key button, and at least 5% of the screen above the bottom.
  *
  * The slot is ~72% of the screen wide and ~13% high, centred, its top at ~15% of the screen. The dial
  * is never resized or moved: if the slot would run into the pointer above the dial, the slot is
@@ -21,6 +25,22 @@ class MainLayout @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
 ) : FrameLayout(context, attrs) {
+
+    private var navigationBarInset = 0 // px of the bottom covered by the system navigation bar (when shown)
+
+    override fun onApplyWindowInsets(insets: WindowInsets): WindowInsets {
+        val bottom = if (Build.VERSION.SDK_INT >= 30) {
+            insets.getInsets(WindowInsets.Type.navigationBars()).bottom
+        } else {
+            @Suppress("DEPRECATION")
+            insets.systemWindowInsetBottom
+        }
+        if (bottom != navigationBarInset) {
+            navigationBarInset = bottom
+            requestLayout()
+        }
+        return super.onApplyWindowInsets(insets)
+    }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val w = MeasureSpec.getSize(widthMeasureSpec)
@@ -49,7 +69,22 @@ class MainLayout @JvmOverloads constructor(
             // The difficulty drum: centred under the dial (its view has a little room above for the marker).
             val drumBodyHeight = h * DRUM_HEIGHT
             val drumViewHeight = (drumBodyHeight * (1f + DRUM_MARKER_ROOM)).roundToInt()
-            val drumViewTop = DialView.dialBottom(w, h) + h * DRUM_BELOW_DIAL - drumBodyHeight * DRUM_MARKER_ROOM
+            val dialBottom = DialView.dialBottom(w, h)
+            // Normally this far below the dial; but never lower than the bottom limit allows.
+            var drumBodyTop = dialBottom + h * DRUM_BELOW_DIAL
+            var bottomLimit = min(h * (1f - DRUM_MIN_BOTTOM), h - navigationBarInset - DRUM_CLEARANCE_DP * density)
+            val key: View? = findViewById(R.id.mode_button)
+            if (key != null && key.visibility != View.GONE) {
+                val keyMargin = (key.layoutParams as LayoutParams).run { max(rightMargin, marginEnd) }
+                val keyLeft = w - keyMargin - key.layoutParams.width
+                val drumRight = w / 2f + w * DRUM_WIDTH / 2f
+                if (drumRight + DRUM_CLEARANCE_DP * density > keyLeft) { // side by side: keep above the key
+                    val keyTop = h - navigationBarInset - (key.layoutParams as LayoutParams).bottomMargin - key.layoutParams.height
+                    bottomLimit = min(bottomLimit, keyTop - DRUM_CLEARANCE_DP * density)
+                }
+            }
+            drumBodyTop = max(min(drumBodyTop, bottomLimit - drumBodyHeight), dialBottom + h * DRUM_MIN_BELOW_DIAL)
+            val drumViewTop = drumBodyTop - drumBodyHeight * DRUM_MARKER_ROOM
             findViewById<View>(R.id.difficulty_drum)?.let { drum ->
                 place(drum, (w * DRUM_WIDTH).roundToInt(), drumViewHeight, drumViewTop.roundToInt())
             }
@@ -85,7 +120,10 @@ class MainLayout @JvmOverloads constructor(
         const val DRUM_WIDTH = 0.40f // of the screen width
         const val DRUM_HEIGHT = 0.05f // of the screen height (the drum itself, without the marker)
         const val DRUM_MARKER_ROOM = 0.10f // of the drum's height, above it: matches DifficultyDrum
-        const val DRUM_BELOW_DIAL = 0.04f // of the screen height, from the dial to the drum
+        const val DRUM_BELOW_DIAL = 0.07f // of the screen height, from the dial to the drum
+        const val DRUM_MIN_BELOW_DIAL = 0.01f // ...and never closer than this, however little room there is
+        const val DRUM_MIN_BOTTOM = 0.05f // of the screen height: the drum's bottom edge is at least this far from the screen's
+        const val DRUM_CLEARANCE_DP = 8f // air between the drum and the navigation bar / the key button
         const val STATUS_BELOW_DRUM = 0.015f // of the screen height
     }
 }

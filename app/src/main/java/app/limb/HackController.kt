@@ -78,6 +78,7 @@ class HackController(
     private fun enter() {
         active = true
         ensureSafe()
+        game?.resync(dial.angleDegrees, now()) // the dial was turned freely while the mode was off
         dots.filled = if (phase == Phase.OPENED) SafeCode.LENGTH else game?.step ?: 0
         showDrum(true)
         dots.visibility = View.VISIBLE
@@ -121,6 +122,7 @@ class HackController(
     fun onResume() {
         if (!active) return
         convertStaleDaily()
+        game?.resync(dial.angleDegrees, now())
         handler.removeCallbacks(tick)
         handler.postDelayed(tick, TICK_MS)
     }
@@ -255,7 +257,7 @@ class HackController(
         safeDay = saved.day
         elapsedMs = saved.elapsedMs
         runningSince = 0L
-        game = SafeGame(saved.code, saved.step, now(), difficulty)
+        game = SafeGame(saved.code, saved.step, now(), difficulty, dial.angleDegrees)
         if (saved.isDaily && !isDaily) persist()
     }
 
@@ -277,7 +279,7 @@ class HackController(
         safeDay = today
         elapsedMs = 0L
         runningSince = 0L
-        game = SafeGame(code, 0, now(), difficulty)
+        game = SafeGame(code, 0, now(), difficulty, dial.angleDegrees)
         persist()
     }
 

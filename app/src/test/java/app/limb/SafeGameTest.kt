@@ -8,17 +8,22 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** A pretend dial: the number under the pointer is floorMod(-round(angle / 6), 60), as in DialView. */
-private class SimDial(code: IntArray, step: Int = 0, difficulty: Difficulty = Difficulty.NORMAL) {
+private class SimDial(
+    code: IntArray,
+    step: Int = 0,
+    difficulty: Difficulty = Difficulty.NORMAL,
+    startAngle: Float = 0f,
+) {
     var now = 1000L
-    var angle = 0f
-    val game = SafeGame(code, step, now, difficulty)
+    var angle = startAngle
+    val game = SafeGame(code, step, now, difficulty, startAngle)
     val events = mutableListOf<Event>()
     val number get() = Math.floorMod(-(angle / 6f).roundToInt(), 60)
 
     fun turn(divisions: Int, clockwise: Boolean) {
         repeat(divisions) {
             val d = if (clockwise) 6f else -6f
-            angle = (angle + d + 360f) % 360f
+            angle += d
             now += 50
             game.onRotated(d, now)?.let { events += it }
         }
@@ -37,7 +42,28 @@ private class SimDial(code: IntArray, step: Int = 0, difficulty: Difficulty = Di
         var guard = 0
         while (number != n && guard++ < 200) turn(1, clockwise)
     }
+
+    /** Dials [n] the way a person would: if already on it, step away first, then come to it, and wait. */
+    fun dial(n: Int, clockwise: Boolean) {
+        if (number == n) turn(3, !clockwise)
+        goTo(n, clockwise)
+        idle(700)
+    }
+
+    val mistakes get() = events.filterIsInstance<Event.Mistake>()
+
+    /** Dials the code correctly from here: counter-clockwise, clockwise, counter-clockwise. */
+    fun dialAll() {
+        dial(game.code[0], clockwise = false)
+        dial(game.code[1], clockwise = true)
+        dial(game.code[2], clockwise = false)
+    }
 }
+
+/** The angle at which number [n] is under the pointer. */
+private fun angleOf(n: Int) = -6f * n
+
+private val ALL_LEVELS = Difficulty.values().toList()
 
 class SafeGameTest {
     private val code = intArrayOf(10, 30, 50)
@@ -324,5 +350,154 @@ class SafeGameTest {
         val g3 = SafeGame(code, startStep = 2) // step 3: counter-clockwise again
         assertTrue(g3.isHint(50, false, 1, 0))
         assertFalse(g3.isHint(50, true, 1, 0))
+    }
+
+    // ---- the whole dialing, with the dial starting anywhere (code like 10 -> 45 -> 20) ----------------
+
+    private val code2 = intArrayOf(10, 45, 20)
+
+    @Test
+    fun dialingAllThreeNumbersOpensTheSafeOnEveryLevelFromAnyStartingNumber() {
+        for (level in ALL_LEVELS) for (start in 0 until 60) {
+            val s = SimDial(code2, difficulty = level, startAngle = angleOf(start))
+            s.dialAll()
+            assertTrue("$level from $start: ${s.events}", s.game.opened)
+            assertEquals("$level from $start", listOf<Event>(Event.StepDialed(0), Event.StepDialed(1), Event.Opened), s.events)
+        }
+    }
+
+    @Test
+    fun aDialStartingBetweenTwoNumbersIsTreatedTheSame() {
+        for (level in ALL_LEVELS) for (start in listOf(17, 30, 37)) {
+            val s = SimDial(code2, difficulty = level, startAngle = angleOf(start) + 2.5f)
+            s.dialAll()
+            assertEquals("$level from $start", listOf<Event>(Event.StepDialed(0), Event.StepDialed(1), Event.Opened), s.events)
+        }
+    }
+
+    @Test
+    fun theSecondNumberAcrossZeroIsNoMistake() {
+        val across = intArrayOf(5, 55, 30)
+        for (level in ALL_LEVELS) for (start in listOf(0, 1, 17, 30, 55, 59)) {
+            val s = SimDial(across, difficulty = level, startAngle = angleOf(start))
+            s.dialAll()
+            assertTrue("$level from $start: ${s.events}", s.mistakes.isEmpty())
+            assertEquals("$level from $start", listOf<Event>(Event.StepDialed(0), Event.StepDialed(1), Event.Opened), s.events)
+        }
+    }
+
+    @Test
+    fun theSecondNumberOverrunByTwoOrMoreRollsBackOrResets() {
+        for (past in listOf(2, 3, 7)) for (start in listOf(0, 17, 40)) {
+            for (level in listOf(Difficulty.NORMAL, Difficulty.HARD)) {
+                val s = SimDial(code2, difficulty = level, startAngle = angleOf(start))
+                s.dial(10, clockwise = false)
+                s.goTo(45, clockwise = true)
+                s.turn(1, clockwise = true)
+                assertTrue("$level past $past start $start: one past is still fine: ${s.events}", s.mistakes.isEmpty())
+                s.turn(past - 1, clockwise = true)
+                assertEquals("$level past $past from $start", listOf(Event.Mistake(1, 0)), s.mistakes)
+                assertEquals("the 1st dot goes out: back to the 1st number", 0, s.game.step)
+            }
+        }
+    }
+
+    @Test
+    fun theThirdNumberOverrunDiffersBetweenNormalAndHard() {
+        for ((level, expected) in listOf(Difficulty.NORMAL to 1, Difficulty.HARD to 0)) {
+            val s = SimDial(code2, difficulty = level, startAngle = angleOf(23))
+            s.dial(10, false)
+            s.dial(45, true)
+            s.goTo(20, clockwise = false)
+            s.turn(2, clockwise = false)
+            assertEquals(listOf(Event.Mistake(2, expected)), s.mistakes)
+            assertEquals(expected, s.game.step)
+        }
+    }
+
+    @Test
+    fun overrunningByExactlyOneAndComingBackIsNoMistakeAndTheNumberCounts() {
+        for (level in ALL_LEVELS) for (start in listOf(0, 17, 40)) {
+            val s = SimDial(code2, difficulty = level, startAngle = angleOf(start))
+            s.dial(10, false)
+            s.goTo(45, clockwise = true)
+            s.turn(1, clockwise = true) // 44
+            s.turn(1, clockwise = false) // back onto 45
+            s.idle(700)
+            assertTrue("$level from $start", s.mistakes.isEmpty())
+            assertEquals(Event.StepDialed(1), s.events.last())
+
+            s.goTo(20, clockwise = false)
+            s.turn(1, clockwise = false) // 21
+            s.turn(1, clockwise = true) // 20
+            s.idle(700)
+            assertTrue(s.mistakes.isEmpty())
+            assertEquals(Event.Opened, s.events.last())
+        }
+    }
+
+    @Test
+    fun anExtraLapToTheSameNumberIsAMistakeBeforeTheNumberIsReached() {
+        for (level in listOf(Difficulty.NORMAL, Difficulty.HARD)) for (step in 0..2) {
+            val s = SimDial(code2, step, level, angleOf(33))
+            val target = code2[step]
+            val clockwise = step == 1
+            s.goTo(target, clockwise)
+            s.turn(2, clockwise) // past it: the mistake fires right here
+            val atOnce = s.mistakes.size
+            assertEquals("$level step ${step + 1}", 1, atOnce)
+            s.turn(58, clockwise) // a whole lap on, the number is under the pointer again
+            assertEquals(target, s.number)
+            s.idle(2000)
+            assertTrue("$level step ${step + 1}: the lap does not dial it", s.events.none { it is Event.StepDialed })
+        }
+    }
+
+    @Test
+    fun easyNeverResetsAndTheNumbersCanStillBeDialed() {
+        for (start in listOf(0, 17, 40)) {
+            val s = SimDial(code2, difficulty = Difficulty.EASY, startAngle = angleOf(start))
+            for ((i, clockwise) in listOf(false, true, false).withIndex()) {
+                s.goTo(code2[i], clockwise)
+                s.turn(5, clockwise) // well past it...
+                s.turn(61, clockwise) // ...and a lap on
+                s.goTo(code2[i], clockwise) // ...and back to it
+                s.idle(700)
+            }
+            assertTrue("from $start: ${s.events}", s.mistakes.isEmpty())
+            assertTrue(s.game.opened)
+        }
+    }
+
+    @Test
+    fun mistakeOnTheSecondNumberDoesNotSpoilTheNextAttempt() {
+        val s = SimDial(code2, difficulty = Difficulty.NORMAL, startAngle = angleOf(30))
+        s.dial(10, false)
+        s.goTo(45, clockwise = true)
+        s.turn(3, clockwise = true) // rolled back to the 1st number
+        assertEquals(0, s.game.step)
+        s.dialAll() // and then everything done right
+        assertTrue(s.game.opened)
+        assertEquals(1, s.mistakes.size)
+    }
+
+    @Test
+    fun theGameFollowsTheDialIfItMovedWithoutTellingIt() {
+        val s = SimDial(code2, startAngle = angleOf(0))
+        s.angle = angleOf(33) // turned while the mode was off
+        s.game.resync(s.angle, s.now)
+        s.dialAll()
+        assertTrue(s.events.toString(), s.game.opened)
+        assertTrue(s.mistakes.isEmpty())
+    }
+
+    @Test
+    fun aDriftOfTheGameIsCorrectedWhenTheDialIsAtRest() {
+        val s = SimDial(code2, startAngle = angleOf(0))
+        s.angle = angleOf(17) // moved behind its back
+        s.idle(1000)
+        assertTrue(s.events.isEmpty())
+        s.dialAll()
+        assertTrue(s.events.toString(), s.game.opened)
     }
 }
