@@ -104,16 +104,14 @@ class SafeGameTest {
     }
 
     @Test
-    fun arrivingTheWrongWayDoesNotCount() {
+    fun arrivingFromTheWrongSideDoesNotCount() {
         val s = SimDial(code)
-        s.goTo(10, clockwise = false)
-        s.turn(1, false) // one past it (no mistake: not more than a division)
-        s.turn(1, true) // and back on it, but from the wrong side
-        assertEquals(10, s.number)
+        s.goTo(13, clockwise = true) // from 0 down to 13: clockwise is the wrong way for the 1st number
+        s.goTo(10, clockwise = true) // and on to 10, still the wrong way
         s.idle(2000)
         assertTrue(s.events.isEmpty())
-        s.goTo(7, clockwise = true)
-        s.goTo(10, clockwise = false)
+        s.goTo(8, clockwise = true)
+        s.goTo(10, clockwise = false) // now the right way
         s.idle(700)
         assertEquals(listOf<Event>(Event.StepDialed(0)), s.events)
     }
@@ -143,26 +141,79 @@ class SafeGameTest {
         assertEquals(1, s.events.size)
     }
 
-    // ---- mistakes: passing the number by more than one division and then turning back
+    // ---- mistakes: the pointer goes past the number by more than one division, turning the right way
 
     @Test
-    fun passingByExactlyOneDivisionIsNotAMistake() {
-        val s = SimDial(code)
-        s.goTo(11, false) // one past 10
-        s.turn(1, true) // and back
+    fun passingByExactlyOneDivisionIsForgivenAndCanBeCorrected() {
+        val s = SimDial(code, difficulty = Difficulty.HARD)
+        s.goTo(10, false)
+        s.turn(1, false) // one past it: forgiven
+        s.turn(1, true) // a small correction back onto it
+        assertEquals(10, s.number)
         assertTrue(s.events.isEmpty())
+        s.idle(700)
+        assertEquals("the corrected number counts", listOf<Event>(Event.StepDialed(0)), s.events)
     }
 
     @Test
-    fun normalLosesOnlyTheCurrentStep() {
+    fun theMistakeComesAtOnceNotAtTheTurnAround() {
+        val s = SimDial(code, difficulty = Difficulty.NORMAL)
+        s.goTo(10, false)
+        s.turn(1, false) // 11: still forgiven
+        assertTrue(s.events.isEmpty())
+        s.turn(1, false) // 12: two divisions past it
+        assertEquals(listOf<Event>(Event.Mistake(0, 0)), s.events)
+    }
+
+    @Test
+    fun anotherLapDoesNotHelp() {
+        for (level in listOf(Difficulty.NORMAL, Difficulty.HARD)) {
+            val s = SimDial(code, difficulty = level)
+            s.goTo(10, false)
+            s.turn(2, false) // went past: the mistake
+            assertEquals(1, s.events.size)
+            s.turn(58, false) // on round the dial and back onto 10, the same way
+            assertEquals(10, s.number)
+            s.idle(2000)
+            assertTrue("$level: a second lap is not accepted", s.events.none { it is Event.StepDialed })
+        }
+    }
+
+    @Test
+    fun afterAMistakeOnTheFirstStepYouTurnAroundAndApproachAgain() {
+        val s = SimDial(code, difficulty = Difficulty.NORMAL)
+        s.goTo(10, false)
+        s.turn(2, false) // the mistake (12); stays on step 1
+        assertEquals(0, s.game.step)
+        s.goTo(8, true) // turn around and go back past it...
+        s.goTo(10, false) // ...and approach it the right way again
+        s.idle(700)
+        assertEquals(Event.StepDialed(0), s.events.last())
+    }
+
+    @Test
+    fun normalLosesTheLastDialedNumber() {
         val s = SimDial(code, difficulty = Difficulty.NORMAL)
         s.goTo(10, false)
         s.idle(700) // number 1 dialed
+        s.goTo(30, true) // on the way: step 2 is clockwise
+        s.turn(2, true) // two past 30: a mistake on step 2
+        assertEquals(Event.Mistake(1, 0), s.events.last())
+        assertEquals("one step back: the 1st number is to be dialed again", 0, s.game.step)
+    }
+
+    @Test
+    fun normalGoesBackFromTheThirdStepToTheSecond() {
+        val s = SimDial(code, difficulty = Difficulty.NORMAL)
+        s.goTo(10, false)
+        s.idle(700)
         s.goTo(30, true)
-        s.turn(3, true) // too far (27)
-        s.turn(1, false) // ...and back: a mistake
-        assertEquals(Event.Reset(wholeSafe = false), s.events.last())
-        assertEquals("the number already dialed is kept", 1, s.game.step)
+        s.idle(700)
+        assertEquals(2, s.game.step)
+        s.goTo(50, false) // step 3 target is 50 (counter-clockwise)...
+        s.turn(2, false) // ...two past it
+        assertEquals(Event.Mistake(2, 1), s.events.last())
+        assertEquals(1, s.game.step)
     }
 
     @Test
@@ -171,18 +222,30 @@ class SafeGameTest {
         s.goTo(10, false)
         s.idle(700)
         s.goTo(30, true)
-        s.turn(3, true)
-        s.turn(1, false)
-        assertEquals(Event.Reset(wholeSafe = true), s.events.last())
+        s.idle(700)
+        s.goTo(50, false)
+        s.turn(2, false)
+        assertEquals(Event.Mistake(2, 0), s.events.last())
         assertEquals(0, s.game.step)
     }
 
     @Test
-    fun easyLosesNothingAndYouCanComeBack() {
+    fun hardOnTheFirstStepAlsoNeedsATurnAround() {
+        val s = SimDial(code, difficulty = Difficulty.HARD)
+        s.goTo(10, false)
+        s.turn(2, false)
+        assertEquals(Event.Mistake(0, 0), s.events.last())
+        s.turn(58, false) // a lap the same way
+        s.idle(2000)
+        assertTrue(s.events.none { it is Event.StepDialed })
+    }
+
+    @Test
+    fun easyHasNoMistakesAndYouCanComeBack() {
         val s = SimDial(code, difficulty = Difficulty.EASY)
         s.goTo(10, false)
-        s.turn(3, false) // 13
-        s.turn(2, true) // back towards it (11): a mistake, but a forgiven one
+        s.turn(3, false) // 13: well past it
+        s.turn(2, true) // back towards it (11)
         assertTrue(s.events.isEmpty())
         s.goTo(10, true) // arrives from the "wrong" side
         s.idle(700)
@@ -190,16 +253,11 @@ class SafeGameTest {
     }
 
     @Test
-    fun normalCanDialTheStepAgainAfterAMistake() {
-        val s = SimDial(code, difficulty = Difficulty.NORMAL)
-        s.goTo(10, false)
-        s.turn(3, false)
-        s.turn(1, true)
-        assertEquals(Event.Reset(wholeSafe = false), s.events.last())
-        s.goTo(7, true)
-        s.goTo(10, false) // arrives the right way this time
-        s.idle(700)
-        assertEquals(Event.StepDialed(0), s.events.last())
+    fun passingTheNumberTheWrongWayIsNoMistake() {
+        val s = SimDial(code, difficulty = Difficulty.HARD)
+        s.goTo(20, true) // clockwise from 0: through 10 on the way to 20 the wrong way
+        s.turn(40, true)
+        assertTrue(s.events.isEmpty())
     }
 
     @Test
@@ -215,9 +273,8 @@ class SafeGameTest {
         val s = SimDial(code, difficulty = Difficulty.EASY)
         s.game.difficulty = Difficulty.HARD
         s.goTo(10, false)
-        s.turn(3, false)
-        s.turn(1, true)
-        assertEquals(Event.Reset(wholeSafe = true), s.events.last())
+        s.turn(2, false)
+        assertEquals(Event.Mistake(0, 0), s.events.last())
     }
 
     @Test

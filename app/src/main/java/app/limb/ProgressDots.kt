@@ -34,7 +34,7 @@ class ProgressDots @JvmOverloads constructor(
 
     private val lit = FloatArray(COUNT) // gold fill of each dot, 0..1
     private val green = FloatArray(COUNT) // emerald fill (and glow) of each dot, 0..1
-    private var fade = 1f // everything fades with this while the dots go out
+    private val fade = FloatArray(COUNT) { 1f } // each dot fades with this while it goes out
     private val animators = ArrayList<Animator>()
 
     /** How many numbers are dialed, 0..3 (gold dots, set at once). */
@@ -78,14 +78,19 @@ class ProgressDots @JvmOverloads constructor(
         invalidate()
     }
 
-    /** The lit dots fade away over [durationMs] and the dots are empty again; then [onEnd]. */
-    fun fadeOut(durationMs: Long, onEnd: () -> Unit = {}) {
+    /**
+     * The dots from [fromIndex] on fade away over [durationMs] and are empty again (the ones before stay
+     * lit); then [onEnd].
+     */
+    fun fadeOut(durationMs: Long, fromIndex: Int = 0, onEnd: () -> Unit = {}) {
+        val first = fromIndex.coerceIn(0, COUNT)
         for (a in animators) a.cancel()
         animators.clear()
+        for (i in 0 until COUNT) fade[i] = 1f
         ValueAnimator.ofFloat(1f, 0f).apply {
             duration = durationMs
             addUpdateListener {
-                fade = it.animatedValue as Float
+                for (i in first until COUNT) fade[i] = it.animatedValue as Float
                 invalidate()
             }
             addListener(object : AnimatorListenerAdapter() {
@@ -97,7 +102,7 @@ class ProgressDots @JvmOverloads constructor(
                 override fun onAnimationEnd(animation: Animator) {
                     if (cancelled) return
                     animators.remove(animation)
-                    filled = 0
+                    filled = first
                     onEnd()
                 }
             })
@@ -110,7 +115,7 @@ class ProgressDots @JvmOverloads constructor(
     fun cancelAnimations() {
         for (a in animators.toList()) a.cancel()
         animators.clear()
-        fade = 1f
+        for (i in 0 until COUNT) fade[i] = 1f
     }
 
     private fun ramp(from: Float, to: Float, durationMs: Long, delayMs: Long, onValue: (Float) -> Unit) {
@@ -143,7 +148,7 @@ class ProgressDots @JvmOverloads constructor(
         for (i in 0 until COUNT) {
             val cx = room + dot / 2f + i * (dot + gap)
             canvas.drawCircle(cx, cy, dot / 2f - ringPaint.strokeWidth / 2f, ringPaint)
-            val g = green[i] * fade
+            val g = green[i] * fade[i]
             if (g > 0f) {
                 val r = dot * GLOW_RADIUS
                 glowPaint.alpha = (g * 255f).roundToInt()
@@ -153,7 +158,7 @@ class ProgressDots @JvmOverloads constructor(
                 canvas.drawCircle(0f, 0f, 1f, glowPaint)
                 canvas.restore()
             }
-            val l = lit[i] * fade
+            val l = lit[i] * fade[i]
             if (l > 0f) {
                 fillPaint.color = withAlpha(GOLD_RGB, l)
                 canvas.drawCircle(cx, cy, dot / 2f, fillPaint)

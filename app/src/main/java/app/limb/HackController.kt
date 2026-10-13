@@ -174,10 +174,11 @@ class HackController(
                 dots.filled = event.index + 1 // (also ends any green glow of the previous safe)
                 persist()
             }
-            is SafeGame.Event.Reset -> {
+            is SafeGame.Event.Mistake -> {
                 sounds.playDull() // calm: one dull click and a short double vibration
                 haptics.doubleTick()
-                if (event.wholeSafe) dots.fadeOut(DOTS_FADE_MS) // the lit dots go out
+                // the dots of the numbers that were lost go out (the others stay lit)
+                if (event.to < event.from) dots.fadeOut(DOTS_FADE_MS, fromIndex = event.to)
                 persist()
             }
             SafeGame.Event.Opened -> open()
