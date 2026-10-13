@@ -2,16 +2,27 @@ package app.limb
 
 import kotlin.math.abs
 
-/** How much help the hint ("on hearing and touch") gives. */
+/** What a mistake costs. A mistake: passing the right number by more than one division and then turning back. */
+enum class Mistake {
+    /** Nothing is lost, and the number can be dialed by turning back to it. */
+    FORGIVE,
+
+    /** Only the number being looked for is lost; the numbers already dialed are kept. */
+    RESTART_STEP,
+
+    /** The whole progress is lost: start again with the 1st number. */
+    RESTART_ALL,
+}
+
+/** How much help the hint ("on hearing and touch") gives, and what a mistake costs. */
 enum class Difficulty(
     /** The hint also fires this many numbers either side of the right one. */
     val margin: Int,
-    /** Whether the hint has its own sound (otherwise: vibration only). */
-    val hitSound: Boolean,
+    val onMistake: Mistake,
 ) {
-    EASY(1, true),
-    NORMAL(0, true),
-    HARD(0, false),
+    EASY(1, Mistake.FORGIVE),
+    NORMAL(0, Mistake.RESTART_STEP),
+    HARD(0, Mistake.RESTART_ALL),
 }
 
 /**
@@ -19,13 +30,20 @@ enum class Difficulty(
  * number (the numbers under the pointer go up), CLOCKWISE to the 2nd and COUNTER-CLOCKWISE to the 3rd.
  *
  * A number is dialed when the dial comes to rest on it (under the pointer) for [DWELL_MS], having
- * arrived in the right direction. Missing it (wrong number, direction changed) just means "not yet".
- * Starting to turn the wrong way right after dialing the 1st or 2nd number sends you back to the start.
+ * arrived in the right direction. Stopping elsewhere, or arriving the wrong way, just means "not yet".
+ *
+ * A *mistake* is passing the number being looked for by more than one division while turning the right
+ * way, and then turning back without having dialed it. What it costs depends on [difficulty].
  *
  * Inputs: [onRotated] for every movement of the dial (degrees, clockwise positive), [tick] now and then
  * with the number under the pointer. Times are in any steady millisecond clock.
  */
-class SafeGame(val code: IntArray, startStep: Int = 0, nowMs: Long = 0L) {
+class SafeGame(
+    val code: IntArray,
+    startStep: Int = 0,
+    nowMs: Long = 0L,
+    var difficulty: Difficulty = Difficulty.NORMAL,
+) {
 
     sealed interface Event {
         /** Number [index] (0-based) of the code was dialed. */
@@ -34,8 +52,8 @@ class SafeGame(val code: IntArray, startStep: Int = 0, nowMs: Long = 0L) {
         /** The last number was dialed: the safe is open. */
         object Opened : Event
 
-        /** Started turning the wrong way after a dialed number: back to the 1st number. */
-        object Reset : Event
+        /** A mistake that costs something: [wholeSafe] = back to the 1st number, else only the current number. */
+        data class Reset(val wholeSafe: Boolean) : Event
     }
 
     var step = startStep.coerceIn(0, code.size - 1)
@@ -46,7 +64,8 @@ class SafeGame(val code: IntArray, startStep: Int = 0, nowMs: Long = 0L) {
     private var unwrapped = 0f // total angle turned, degrees
     private var dir = 0 // committed direction of travel: +1 clockwise, -1 counter-clockwise, 0 not yet
     private var extreme = 0f // furthest point reached in the committed direction
-    private var stepStarted = true // false right after dialing a number, until the dial moves again
+    private var runStart = 0f // where the current run in the committed direction began
+    private var forgiven = false // easy level: after a mistake the number may be dialed from either side
     private var anchor = 0f // where the dial last came to a rest
     private var stillSince = nowMs
     private var dwellConsumed = false
@@ -83,29 +102,29 @@ class SafeGame(val code: IntArray, startStep: Int = 0, nowMs: Long = 0L) {
         }
         if (turned == 0) return null
 
+        // The run that just ended: did it pass the number being looked for by more than a division?
+        val missed = dir == DIRECTIONS[step] && passedByMoreThanADivision(runStart, extreme, dir)
+        runStart = extreme // the turning point
         dir = turned
         extreme = unwrapped
-        if (step > 0 && !stepStarted) {
-            stepStarted = true
-            if (turned != DIRECTIONS[step]) return reset(nowMs)
-        }
-        return null
+        return if (missed) mistake(nowMs) else null
     }
 
     /** Call regularly. [number] is the number under the pointer. */
     fun tick(number: Int, nowMs: Long): Event? {
         if (opened || dwellConsumed || nowMs - stillSince < DWELL_MS) return null
         dwellConsumed = true
-        if (dir != DIRECTIONS[step] || number != code[step]) return null
+        if (number != code[step] || (dir != DIRECTIONS[step] && !forgiven)) return null
         if (step == code.size - 1) {
             opened = true
             return Event.Opened
         }
         val done = step
         step++
-        stepStarted = false
+        forgiven = false
         dir = 0
         extreme = unwrapped
+        runStart = unwrapped
         return Event.StepDialed(done)
     }
 
@@ -124,14 +143,41 @@ class SafeGame(val code: IntArray, startStep: Int = 0, nowMs: Long = 0L) {
         return false
     }
 
-    private fun reset(nowMs: Long): Event {
-        step = 0
+    /** Was the number being looked for passed by more than one division during this run (from [start] to [end])? */
+    private fun passedByMoreThanADivision(start: Float, end: Float, direction: Int): Boolean {
+        val base = -STEP * code[step] // angles at which the number is under the pointer: base + 360 k
+        return if (direction > 0) {
+            val first = base + 360f * kotlin.math.ceil((start - base) / 360f) // the first one at or after the start
+            end - first > STEP + EPS
+        } else {
+            val first = base + 360f * kotlin.math.floor((start - base) / 360f) // the last one at or before the start
+            first - end > STEP + EPS
+        }
+    }
+
+    private fun mistake(nowMs: Long): Event? = when (difficulty.onMistake) {
+        Mistake.FORGIVE -> {
+            forgiven = true // you can come back and dial it
+            null
+        }
+        Mistake.RESTART_STEP -> {
+            restartRun(nowMs)
+            Event.Reset(wholeSafe = false)
+        }
+        Mistake.RESTART_ALL -> {
+            step = 0
+            restartRun(nowMs)
+            Event.Reset(wholeSafe = true)
+        }
+    }
+
+    private fun restartRun(nowMs: Long) {
+        forgiven = false
         dir = 0
         extreme = unwrapped
-        stepStarted = true
+        runStart = unwrapped
         stillSince = nowMs
         dwellConsumed = false
-        return Event.Reset
     }
 
     companion object {
@@ -141,5 +187,7 @@ class SafeGame(val code: IntArray, startStep: Int = 0, nowMs: Long = 0L) {
         const val DWELL_MS = 600L
         const val TURN_DEG = 6f // one division: this much travel against the direction turns it around
         const val STILL_TOLERANCE_DEG = 2f // drift smaller than this still counts as standing still
+        private const val STEP = 6f // degrees per division (360 / 60)
+        private const val EPS = 0.001f
     }
 }

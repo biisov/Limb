@@ -1,13 +1,10 @@
 package app.limb
 
-import android.animation.Keyframe
-import android.animation.PropertyValuesHolder
-import android.animation.ValueAnimator
 import android.app.Activity
-import android.app.AlertDialog
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.view.View
 import android.widget.TextView
 import java.time.LocalDate
 import java.util.Random
@@ -21,6 +18,7 @@ class HackController(
     private val activity: Activity,
     private val dial: DialView,
     private val dots: ProgressDots,
+    private val drum: DifficultyDrum,
     private val caption: TextView,
     private val statsLine: TextView,
     private val sounds: ClickSounds,
@@ -41,6 +39,10 @@ class HackController(
     private var safeDay = 0L
     private var elapsedMs = 0L // time spent on this safe, not counting what is running now
     private var runningSince = 0L // uptime (ms) the timer last started; 0 while it is not running
+    private var openedTimeMs = 0L // how long the safe that is opening took
+
+    private var captionFadeOutMs = FADE_MS
+    private var openedCaptionShown = false // the "Opened" text (and statistics) is on screen
 
     private val tick = object : Runnable {
         override fun run() {
@@ -50,12 +52,21 @@ class HackController(
             handler.postDelayed(this, TICK_MS)
         }
     }
-    private var captionFadeOutMs = FADE_MS
-    private var openedCaptionShown = false // the "Opened" text (and statistics) is on screen
     private val hideCaption = Runnable { fadeOutCaption(captionFadeOutMs) }
-    private val nextSafe = Runnable {
-        startNewSafe()
-        if (active) dots.filled = 0
+
+    // The opening: unlock sound and vibration -> the final knock (dots turn green, dial turns over, text)
+    // -> the new safe is ready -> the dots go out.
+    private val finalKnock = Runnable { onFinalKnock() }
+    private val nextSafe = Runnable { startNewSafe() }
+    private val dotsOut = Runnable { dots.fadeOut(DOTS_FADE_MS) }
+
+    init {
+        drum.setLevel(difficulty, animate = false)
+        drum.onTick = {
+            sounds.playDrumClick()
+            haptics.tick(clockwise = true) // the light one
+        }
+        drum.onSelected = { selectDifficulty(it) }
     }
 
     // --- mode ----------------------------------------------------------------------------------
@@ -67,8 +78,9 @@ class HackController(
     private fun enter() {
         active = true
         ensureSafe()
-        dots.visibility = android.view.View.VISIBLE
         dots.filled = if (phase == Phase.OPENED) SafeCode.LENGTH else game?.step ?: 0
+        showDrum(true)
+        dots.visibility = View.VISIBLE
         handler.removeCallbacks(tick)
         handler.postDelayed(tick, TICK_MS)
         val kind = if (isDaily) " · " + activity.getString(R.string.safe_of_the_day) else ""
@@ -76,30 +88,27 @@ class HackController(
     }
 
     private fun leave() {
+        finishOpeningNow()
         active = false
         stopTimer()
         persist()
         handler.removeCallbacks(tick)
-        dots.visibility = android.view.View.GONE
-        dial.pointerGlow = 0f
+        dots.cancelAnimations()
+        dots.visibility = View.GONE
+        showDrum(false)
         showCaption(activity.getString(R.string.mode_free), CAPTION_MS)
     }
 
-    fun chooseDifficulty() {
-        val names = arrayOf(
-            activity.getString(R.string.difficulty_easy),
-            activity.getString(R.string.difficulty_normal),
-            activity.getString(R.string.difficulty_hard),
-        )
-        AlertDialog.Builder(activity)
-            .setTitle(R.string.difficulty_title)
-            .setSingleChoiceItems(names, difficulty.ordinal) { dialog, which ->
-                difficulty = Difficulty.values()[which]
-                store.difficulty = difficulty
-                dialog.dismiss()
-                showCaption(activity.getString(R.string.difficulty_set, names[which]), CAPTION_MS)
-            }
-            .show()
+    /** The drum is only there in the safe-cracking mode: it fades in and out. */
+    private fun showDrum(show: Boolean) {
+        drum.animate().cancel()
+        if (show) {
+            drum.alpha = 0f
+            drum.visibility = View.VISIBLE
+            drum.animate().alpha(1f).setDuration(DRUM_FADE_MS).start()
+        } else {
+            drum.animate().alpha(0f).setDuration(DRUM_FADE_MS).withEndAction { drum.visibility = View.GONE }.start()
+        }
     }
 
     fun onPause() {
@@ -118,6 +127,21 @@ class HackController(
 
     fun release() {
         handler.removeCallbacksAndMessages(null)
+        dots.cancelAnimations()
+    }
+
+    // --- difficulty ----------------------------------------------------------------------------
+
+    /** The drum was set to [level]. A new level starts a new safe, except the safe of the day. */
+    private fun selectDifficulty(level: Difficulty) {
+        if (level == difficulty) return
+        difficulty = level
+        store.difficulty = level
+        game?.difficulty = level
+        if (!isDaily && phase == Phase.PLAYING) {
+            startNewSafe()
+            dots.filled = 0
+        }
     }
 
     // --- the dial ------------------------------------------------------------------------------
@@ -140,21 +164,20 @@ class HackController(
     fun hintFor(clockwise: Boolean, number: Int, crossings: Int): Hint {
         val g = game
         if (!active || g == null || phase != Phase.PLAYING) return Hint.NONE
-        if (!g.isHint(number, clockwise, crossings, difficulty.margin)) return Hint.NONE
-        return if (difficulty.hitSound) Hint.HIT else Hint.HAPTIC_ONLY
+        return if (g.isHint(number, clockwise, crossings, difficulty.margin)) Hint.HIT else Hint.NONE
     }
 
     private fun handle(event: SafeGame.Event?) {
         when (event) {
             null -> Unit
             is SafeGame.Event.StepDialed -> {
-                dots.filled = event.index + 1
+                dots.filled = event.index + 1 // (also ends any green glow of the previous safe)
                 persist()
             }
-            SafeGame.Event.Reset -> {
-                sounds.playDull()
+            is SafeGame.Event.Reset -> {
+                sounds.playDull() // calm: one dull click and a short double vibration
                 haptics.doubleTick()
-                dots.filled = 0
+                if (event.wholeSafe) dots.fadeOut(DOTS_FADE_MS) // the lit dots go out
                 persist()
             }
             SafeGame.Event.Opened -> open()
@@ -166,20 +189,26 @@ class HackController(
     private fun open() {
         phase = Phase.OPENED
         stopTimer()
-        val time = elapsedMs
+        openedTimeMs = elapsedMs
         val today = today()
-        store.recordOpened(time, wasSafeOfTheDay = isDaily && safeDay == today, today = today)
+        store.recordOpened(openedTimeMs, wasSafeOfTheDay = isDaily && safeDay == today, today = today)
         persist()
 
         sounds.playUnlock()
-        haptics.longSoft()
-        dial.playUnlockTurn()
-        dots.filled = SafeCode.LENGTH
-        flash()
+        haptics.unlockSequence()
+        handler.removeCallbacks(finalKnock)
+        handler.postDelayed(finalKnock, Haptics.UNLOCK_FINAL_HIT_MS)
+    }
 
+    /** The final knock of the unlock sound. */
+    private fun onFinalKnock() {
+        dial.playUnlockTurn()
+        if (active) dots.celebrate(GREEN_CHAIN_MS)
+
+        val today = today()
         val best = store.bestMs
         showCaption(
-            activity.getString(R.string.opened, formatTime(time)),
+            activity.getString(R.string.opened, formatTime(openedTimeMs)),
             OPENED_MS,
             activity.getString(
                 R.string.stats,
@@ -191,29 +220,21 @@ class HackController(
             fadeOutMs = OPENED_FADE_OUT_MS,
         )
         openedCaptionShown = true
-        // The new safe is ready as soon as the opening animation is over, text or no text.
+
+        // The new safe is ready as soon as the dial has turned over, text and glow or no text and glow;
+        // the dots stay green a while longer and then go out for it.
         handler.removeCallbacks(nextSafe)
-        handler.postDelayed(nextSafe, NEXT_SAFE_MS)
+        handler.postDelayed(nextSafe, NEXT_SAFE_AFTER_KNOCK_MS)
+        handler.removeCallbacks(dotsOut)
+        handler.postDelayed(dotsOut, GREEN_HOLD_MS)
     }
 
-    private fun flash() {
-        ValueAnimator.ofPropertyValuesHolder(
-            PropertyValuesHolder.ofKeyframe(
-                "glow",
-                Keyframe.ofFloat(0f, 0f),
-                Keyframe.ofFloat(0.12f, 1f),
-                Keyframe.ofFloat(0.45f, 1f),
-                Keyframe.ofFloat(1f, 0f),
-            ),
-        ).apply {
-            duration = FLASH_MS
-            addUpdateListener {
-                val v = it.getAnimatedValue("glow") as Float
-                dial.pointerGlow = v
-                dots.flash = v
-            }
-            start()
-        }
+    /** Leaving the mode in the middle of an opening: skip to the new safe. */
+    private fun finishOpeningNow() {
+        handler.removeCallbacks(finalKnock)
+        handler.removeCallbacks(nextSafe)
+        handler.removeCallbacks(dotsOut)
+        if (phase == Phase.OPENED) startNewSafe()
     }
 
     // --- the safe ------------------------------------------------------------------------------
@@ -233,7 +254,7 @@ class HackController(
         safeDay = saved.day
         elapsedMs = saved.elapsedMs
         runningSince = 0L
-        game = SafeGame(saved.code, saved.step, now())
+        game = SafeGame(saved.code, saved.step, now(), difficulty)
         if (saved.isDaily && !isDaily) persist()
     }
 
@@ -255,7 +276,7 @@ class HackController(
         safeDay = today
         elapsedMs = 0L
         runningSince = 0L
-        game = SafeGame(code, 0, now())
+        game = SafeGame(code, 0, now(), difficulty)
         persist()
     }
 
@@ -325,8 +346,12 @@ class HackController(
         const val OPENED_FADE_IN_MS = 400L
         const val OPENED_FADE_OUT_MS = 600L
         const val DISMISS_FADE_MS = 200L // ...or fades out this fast once the dial is turned
-        const val NEXT_SAFE_MS = 1000L // the new safe appears after the opening animation
-        const val FLASH_MS = 1000L
         const val FADE_MS = 300L
+        const val DRUM_FADE_MS = 250L
+
+        const val GREEN_CHAIN_MS = 45L // the dots turn green one after the other, this far apart
+        const val GREEN_HOLD_MS = 1500L // ...stay green this long after the final knock...
+        const val DOTS_FADE_MS = 300L // ...and then fade out this fast
+        const val NEXT_SAFE_AFTER_KNOCK_MS = 800L // the dial has turned over by then
     }
 }

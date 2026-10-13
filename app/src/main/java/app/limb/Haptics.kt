@@ -108,18 +108,38 @@ class Haptics(private val view: View) {
         }
     }
 
-    /** One long, soft swell: the safe opened. */
-    fun longSoft() {
+    /**
+     * The safe opens, in step with res/raw/unlock.ogg: a run of very light, short ticks over the first
+     * half second (the gears), one crisp tick at [UNLOCK_CRISP_MS] and, 0.1 s later, one strong long
+     * pulse at [UNLOCK_FINAL_HIT_MS] (the final knock).
+     */
+    fun unlockSequence() {
         val v = vibrator
         if (v == null || !v.hasVibrator()) return
+        // (start ms, length ms, strength 1..255)
+        val pulses = ArrayList<LongArray>()
+        if (v.hasAmplitudeControl()) {
+            for (start in UNLOCK_GEAR_TICKS_MS) pulses += longArrayOf(start, 8, 45)
+        }
+        pulses += longArrayOf(UNLOCK_CRISP_MS, 14, 200)
+        pulses += longArrayOf(UNLOCK_FINAL_HIT_MS, 80, 255)
+
+        val timings = ArrayList<Long>()
+        val amplitudes = ArrayList<Int>()
+        var t = 0L
+        for (p in pulses) {
+            if (p[0] > t) {
+                timings += p[0] - t // a pause
+                amplitudes += 0
+            }
+            timings += p[1]
+            amplitudes += p[2].toInt()
+            t = p[0] + p[1]
+        }
         val effect = if (v.hasAmplitudeControl()) {
-            VibrationEffect.createWaveform(
-                longArrayOf(0, 70, 90, 110, 90, 70),
-                intArrayOf(0, 40, 80, 120, 80, 40),
-                -1,
-            )
+            VibrationEffect.createWaveform(timings.toLongArray(), amplitudes.toIntArray(), -1)
         } else {
-            VibrationEffect.createOneShot(300, VibrationEffect.DEFAULT_AMPLITUDE)
+            VibrationEffect.createWaveform(timings.toLongArray(), -1) // alternating off / on, full strength
         }
         v.vibrate(effect)
     }
@@ -136,5 +156,16 @@ class Haptics(private val view: View) {
                 if (strongTick) HapticFeedbackConstants.KEYBOARD_TAP else HapticFeedbackConstants.CLOCK_TICK,
             )
         }
+    }
+
+    companion object {
+        /** When the gear ticks of the unlock sound start (ms), as in the recording. */
+        private val UNLOCK_GEAR_TICKS_MS = longArrayOf(0, 30, 60, 90, 130, 160, 200, 240, 280, 330, 370, 420, 470, 530)
+
+        /** The smaller knock in the unlock sound, 0.1 s before the final one. */
+        const val UNLOCK_CRISP_MS = 610L
+
+        /** The final knock of the unlock sound: when the dots turn green and the dial turns over. */
+        const val UNLOCK_FINAL_HIT_MS = 710L
     }
 }

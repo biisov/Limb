@@ -32,7 +32,15 @@
         android:layout_height="wrap_content"
         android:visibility="gone" />
 
-    <!-- Mode name, "Opened" and statistics: shown briefly below the dial (placed by MainLayout). -->
+    <!-- Difficulty selector (safe-cracking mode only), below the dial (placed by MainLayout). -->
+    <app.limb.DifficultyDrum
+        android:id="@+id/difficulty_drum"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:alpha="0"
+        android:visibility="gone" />
+
+    <!-- Mode name, "Opened" and statistics: shown briefly below the drum (placed by MainLayout). -->
     <LinearLayout
         android:id="@+id/status_container"
         android:layout_width="match_parent"
@@ -60,7 +68,7 @@
             android:textSize="13sp" />
     </LinearLayout>
 
-    <!-- Small, quiet key: tap switches Free / Safe cracking, long press chooses the difficulty. -->
+    <!-- Small, quiet key: a tap switches Free / Safe cracking. -->
     <ImageButton
         android:id="@+id/mode_button"
         android:layout_width="44dp"

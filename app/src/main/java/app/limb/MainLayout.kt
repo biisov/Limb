@@ -11,6 +11,8 @@ import kotlin.math.roundToInt
 /**
  * The screen: the dial fills it, and the slot (`@id/ad_container`) sits above the dial.
  *
+ * Below the dial: the difficulty drum (safe-cracking mode only), and under it the short texts.
+ *
  * The slot is ~72% of the screen wide and ~13% high, centred, its top at ~15% of the screen. The dial
  * is never resized or moved: if the slot would run into the pointer above the dial, the slot is
  * moved up instead.
@@ -40,13 +42,21 @@ class MainLayout @JvmOverloads constructor(
             findViewById<View>(R.id.progress_dots)?.let { dots ->
                 val centre = pointerTop - minOf((pointerTop - (top + slotHeight)) / 2f, MAX_DOTS_OFFSET_DP * density)
                 // the view has a little room around the dots for the flash: centre it on the dots
-                val viewHeight = dotsHeight * (1f + 2f * DOTS_FLASH_ROOM)
+                val viewHeight = dotsHeight * (1f + 2f * ProgressDots.ROOM)
                 place(dots, LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, (centre - viewHeight / 2f).roundToInt())
             }
 
-            // Mode name / "Opened" / statistics: below the dial.
+            // The difficulty drum: centred under the dial (its view has a little room above for the marker).
+            val drumBodyHeight = h * DRUM_HEIGHT
+            val drumViewHeight = (drumBodyHeight * (1f + DRUM_MARKER_ROOM)).roundToInt()
+            val drumViewTop = DialView.dialBottom(w, h) + h * DRUM_BELOW_DIAL - drumBodyHeight * DRUM_MARKER_ROOM
+            findViewById<View>(R.id.difficulty_drum)?.let { drum ->
+                place(drum, (w * DRUM_WIDTH).roundToInt(), drumViewHeight, drumViewTop.roundToInt())
+            }
+
+            // Mode name / "Opened" / statistics: below the drum.
             findViewById<View>(R.id.status_container)?.let { status ->
-                val below = (DialView.dialBottom(w, h) + h * STATUS_BELOW_DIAL).roundToInt()
+                val below = (drumViewTop + drumViewHeight + h * STATUS_BELOW_DRUM).roundToInt()
                 place(status, LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT, below)
             }
         }
@@ -72,7 +82,10 @@ class MainLayout @JvmOverloads constructor(
         const val SLOT_GAP = 0.03f // of the screen width, minimum space between the slot and the pointer
         const val DOTS_MARGIN_DP = 4f // air around the safe-cracking dots, in the gap
         const val MAX_DOTS_OFFSET_DP = 20f // the dots sit at most this far above the pointer
-        const val DOTS_FLASH_ROOM = 0.35f // matches ProgressDots' room for the flash
-        const val STATUS_BELOW_DIAL = 0.05f // of the screen height
+        const val DRUM_WIDTH = 0.40f // of the screen width
+        const val DRUM_HEIGHT = 0.05f // of the screen height (the drum itself, without the marker)
+        const val DRUM_MARKER_ROOM = 0.10f // of the drum's height, above it: matches DifficultyDrum
+        const val DRUM_BELOW_DIAL = 0.04f // of the screen height, from the dial to the drum
+        const val STATUS_BELOW_DRUM = 0.015f // of the screen height
     }
 }

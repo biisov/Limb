@@ -40,14 +40,22 @@ class ClickSounds(context: Context) {
         pool.play(unlockSound, 1f, 1f, 1, 0, 1f)
     }
 
-    /** One dull click: the safe-cracking progress was lost. */
+    /** One calm, dull click: something was lost in the safe-cracking mode. */
     fun playDull() {
-        pool.play(counterClockwiseSound, DULL_VOLUME, DULL_VOLUME, 1, 0, 1f)
+        pool.play(counterClockwiseSound, DULL_VOLUME, DULL_VOLUME, 1, 0, DULL_RATE)
+    }
+
+    /** A quiet ratchet click for the difficulty drum. */
+    fun playDrumClick() {
+        pool.play(clockwiseSound, DRUM_VOLUME, DRUM_VOLUME, 1, 0, DRUM_RATE)
     }
 
     fun release() = pool.release()
 
     private companion object {
-        const val DULL_VOLUME = 0.5f
+        const val DULL_VOLUME = 0.6f
+        const val DULL_RATE = 0.85f
+        const val DRUM_VOLUME = 0.5f
+        const val DRUM_RATE = 1.2f
     }
 }

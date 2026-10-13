@@ -52,6 +52,7 @@ class MainActivity : Activity() {
             this,
             dial,
             findViewById(R.id.progress_dots),
+            findViewById(R.id.difficulty_drum),
             findViewById(R.id.status_text),
             findViewById(R.id.stats_text),
             sounds,
@@ -61,13 +62,7 @@ class MainActivity : Activity() {
         dial.detentListener = DialView.DetentListener { clockwise, divisionsPerSecond, number, crossings ->
             feedback.onDetent(clockwise, divisionsPerSecond, hack.hintFor(clockwise, number, crossings))
         }
-        findViewById<View>(R.id.mode_button).apply {
-            setOnClickListener { hack.toggle() }
-            setOnLongClickListener {
-                hack.chooseDifficulty()
-                true
-            }
-        }
+        findViewById<View>(R.id.mode_button).setOnClickListener { hack.toggle() }
     }
 
     // Volume buttons turn the dial: + counter-clockwise, - clockwise. A tap is exactly one division;

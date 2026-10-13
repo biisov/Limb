@@ -8,10 +8,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** A pretend dial: the number under the pointer is floorMod(-round(angle / 6), 60), as in DialView. */
-private class SimDial(code: IntArray, step: Int = 0) {
+private class SimDial(code: IntArray, step: Int = 0, difficulty: Difficulty = Difficulty.NORMAL) {
     var now = 1000L
     var angle = 0f
-    val game = SafeGame(code, step, now)
+    val game = SafeGame(code, step, now, difficulty)
     val events = mutableListOf<Event>()
     val number get() = Math.floorMod(-(angle / 6f).roundToInt(), 60)
 
@@ -107,8 +107,8 @@ class SafeGameTest {
     fun arrivingTheWrongWayDoesNotCount() {
         val s = SimDial(code)
         s.goTo(10, clockwise = false)
-        s.turn(3, false)
-        s.turn(3, true)
+        s.turn(1, false) // one past it (no mistake: not more than a division)
+        s.turn(1, true) // and back on it, but from the wrong side
         assertEquals(10, s.number)
         s.idle(2000)
         assertTrue(s.events.isEmpty())
@@ -119,33 +119,12 @@ class SafeGameTest {
     }
 
     @Test
-    fun startingTheWrongWayAfterANumberResets() {
-        val s = SimDial(code)
-        s.goTo(10, false)
-        s.idle(700)
-        assertEquals(1, s.game.step)
-        s.turn(2, false) // step 2 is clockwise
-        assertEquals(Event.Reset, s.events.last())
-        assertEquals(0, s.game.step)
-
-        val t = SimDial(code)
-        t.goTo(10, false)
-        t.idle(700)
-        t.goTo(30, true)
-        t.idle(700)
-        assertEquals(2, t.game.step)
-        t.turn(2, true) // step 3 is counter-clockwise
-        assertEquals(Event.Reset, t.events.last())
-        assertEquals(0, t.game.step)
-    }
-
-    @Test
     fun turningBackInTheMiddleOfAStepIsQuiet() {
         val s = SimDial(code)
         s.goTo(10, false)
         s.idle(700)
-        s.goTo(25, true)
-        s.turn(8, false)
+        s.goTo(40, true) // on the way to 30
+        s.turn(8, false) // turned back before getting there: quiet
         assertEquals(1, s.game.step)
         assertEquals(1, s.events.size)
         s.goTo(30, true)
@@ -154,25 +133,91 @@ class SafeGameTest {
     }
 
     @Test
-    fun afterAResetTheFirstNumberCanBeDialedAgain() {
+    fun startingTheWrongWayAfterANumberIsNotPunished() {
         val s = SimDial(code)
         s.goTo(10, false)
         s.idle(700)
-        s.turn(2, false)
-        assertEquals(Event.Reset, s.events.last())
-        s.goTo(8, true)
-        s.goTo(10, false)
-        s.idle(700)
         assertEquals(1, s.game.step)
-        assertEquals(2, s.events.count { it is Event.StepDialed })
+        s.turn(4, false) // step 2 is clockwise, but turning on the same way is no mistake by itself
+        assertEquals(1, s.game.step)
+        assertEquals(1, s.events.size)
+    }
+
+    // ---- mistakes: passing the number by more than one division and then turning back
+
+    @Test
+    fun passingByExactlyOneDivisionIsNotAMistake() {
+        val s = SimDial(code)
+        s.goTo(11, false) // one past 10
+        s.turn(1, true) // and back
+        assertTrue(s.events.isEmpty())
     }
 
     @Test
-    fun aRestoredGameDoesNotPunishTheFirstMove() {
-        val s = SimDial(code, step = 1)
-        s.turn(2, false)
-        assertEquals(1, s.game.step)
+    fun normalLosesOnlyTheCurrentStep() {
+        val s = SimDial(code, difficulty = Difficulty.NORMAL)
+        s.goTo(10, false)
+        s.idle(700) // number 1 dialed
+        s.goTo(30, true)
+        s.turn(3, true) // too far (27)
+        s.turn(1, false) // ...and back: a mistake
+        assertEquals(Event.Reset(wholeSafe = false), s.events.last())
+        assertEquals("the number already dialed is kept", 1, s.game.step)
+    }
+
+    @Test
+    fun hardLosesEverything() {
+        val s = SimDial(code, difficulty = Difficulty.HARD)
+        s.goTo(10, false)
+        s.idle(700)
+        s.goTo(30, true)
+        s.turn(3, true)
+        s.turn(1, false)
+        assertEquals(Event.Reset(wholeSafe = true), s.events.last())
+        assertEquals(0, s.game.step)
+    }
+
+    @Test
+    fun easyLosesNothingAndYouCanComeBack() {
+        val s = SimDial(code, difficulty = Difficulty.EASY)
+        s.goTo(10, false)
+        s.turn(3, false) // 13
+        s.turn(2, true) // back towards it (11): a mistake, but a forgiven one
         assertTrue(s.events.isEmpty())
+        s.goTo(10, true) // arrives from the "wrong" side
+        s.idle(700)
+        assertEquals(listOf<Event>(Event.StepDialed(0)), s.events)
+    }
+
+    @Test
+    fun normalCanDialTheStepAgainAfterAMistake() {
+        val s = SimDial(code, difficulty = Difficulty.NORMAL)
+        s.goTo(10, false)
+        s.turn(3, false)
+        s.turn(1, true)
+        assertEquals(Event.Reset(wholeSafe = false), s.events.last())
+        s.goTo(7, true)
+        s.goTo(10, false) // arrives the right way this time
+        s.idle(700)
+        assertEquals(Event.StepDialed(0), s.events.last())
+    }
+
+    @Test
+    fun noMistakeWhenTurningBackFromShortOfTheNumber() {
+        val s = SimDial(code, difficulty = Difficulty.HARD)
+        s.goTo(8, false) // not there yet
+        s.turn(2, true) // turning back from short of it is no mistake
+        assertTrue(s.events.isEmpty())
+    }
+
+    @Test
+    fun theLevelCanBeChangedOnTheFly() {
+        val s = SimDial(code, difficulty = Difficulty.EASY)
+        s.game.difficulty = Difficulty.HARD
+        s.goTo(10, false)
+        s.turn(3, false)
+        s.turn(1, true)
+        assertEquals(Event.Reset(wholeSafe = true), s.events.last())
     }
 
     @Test

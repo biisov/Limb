@@ -73,13 +73,6 @@ class DialView @JvmOverloads constructor(
     /** Extra rotation of the drawn dial only (the "turn-over" when a safe opens); does not affect clicks. */
     private var visualOffset = 0f
 
-    /** 0..1: how far the pointer has turned from grey to gold. */
-    var pointerGlow = 0f
-        set(value) {
-            field = value.coerceIn(0f, 1f)
-            invalidate()
-        }
-
     /** The scale number under the pointer (the nearest one). */
     val currentNumber: Int get() = Math.floorMod(-(angle / STEP).roundToInt(), DETENTS)
 
@@ -533,7 +526,6 @@ class DialView @JvmOverloads constructor(
         canvas.scale(scale, scale)
 
         // ---- fixed: pointer and the shadow under the dial
-        pointerPaint.color = lerpColor(opaque(0x8A8A8A), opaque(GOLD_RGB), pointerGlow)
         canvas.drawPath(pointerPath, pointerPaint)
         drawLayer(canvas, bigShadow)
 
@@ -648,16 +640,6 @@ class DialView @JvmOverloads constructor(
 
         /** Y (in pixels) of the bottom of the knurled ring for a view of this size. */
         fun dialBottom(width: Int, height: Int): Float = height / 2f + R_KN * scaleFor(width, height)
-
-        private fun lerpColor(from: Int, to: Int, t: Float): Int {
-            if (t <= 0f) return from
-            fun ch(shift: Int) = ((from shr shift and 0xFF) + ((to shr shift and 0xFF) - (from shr shift and 0xFF)) * t).roundToInt()
-            return (0xFF shl 24) or (ch(16) shl 16) or (ch(8) shl 8) or ch(0)
-        }
-
-        /** Y (in pixels) of the top of the fixed pointer for a view of this size. The dial is centred. */
-        fun pointerTop(width: Int, height: Int): Float =
-            height / 2f - (R_KN + POINTER_GAP + POINTER_HEIGHT) * scaleFor(width, height)
 
         private fun opaque(rgb: Int): Int = rgb or (0xFF shl 24)
         private fun rgba(rgb: Int, a: Float): Int = ((a * 255f + 0.5f).toInt() shl 24) or (rgb and 0xFFFFFF)
