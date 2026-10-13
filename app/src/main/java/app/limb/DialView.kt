@@ -641,6 +641,10 @@ class DialView @JvmOverloads constructor(
         /** Y (in pixels) of the bottom of the knurled ring for a view of this size. */
         fun dialBottom(width: Int, height: Int): Float = height / 2f + R_KN * scaleFor(width, height)
 
+        /** Y (in pixels) of the top of the fixed pointer for a view of this size. The dial is centred. */
+        fun pointerTop(width: Int, height: Int): Float =
+            height / 2f - (R_KN + POINTER_GAP + POINTER_HEIGHT) * scaleFor(width, height)
+
         private fun opaque(rgb: Int): Int = rgb or (0xFF shl 24)
         private fun rgba(rgb: Int, a: Float): Int = ((a * 255f + 0.5f).toInt() shl 24) or (rgb and 0xFFFFFF)
     }
