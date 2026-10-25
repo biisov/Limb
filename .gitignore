@@ -10,3 +10,6 @@ free-my-tv/
 *.apk
 *.keystore
 config.properties
+
+# Служебные файлы Python
+__pycache__/
