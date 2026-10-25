@@ -1,0 +1,12 @@
+# Личные данные телевизора: остаются только на вашем компьютере
+backups/
+measurements/
+apps.tsv
+screen*.png
+ui*.xml
+
+# Free My TV клонируется сюда отдельно; его ключи и настройки не публикуем
+free-my-tv/
+*.apk
+*.keystore
+config.properties
